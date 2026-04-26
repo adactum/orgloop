@@ -5,6 +5,7 @@
  */
 
 import type { LogEntry, LogPhase } from '@orgloop/sdk';
+import { formatRouteRef } from '@orgloop/sdk';
 
 // ANSI color codes
 const RESET = '\x1b[0m';
@@ -78,7 +79,7 @@ export function formatCompact(entry: LogEntry, useColor: boolean): string {
 
 	if (entry.source) parts.push(`src=${entry.source}`);
 	if (entry.target) parts.push(`tgt=${entry.target}`);
-	if (entry.route) parts.push(`route=${entry.route}`);
+	if (entry.route) parts.push(`route=${formatRouteRef(entry.route)}`);
 	if (entry.transform) parts.push(`xform=${entry.transform}`);
 	if (entry.event_type) parts.push(`type=${entry.event_type}`);
 	if (entry.result) parts.push(`result=${entry.result}`);

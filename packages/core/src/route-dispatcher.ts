@@ -18,12 +18,14 @@ import type {
 	OrgLoopEvent,
 	RouteDefinition,
 	RouteDeliveryConfig,
+	RouteRef,
 } from '@orgloop/sdk';
 import type { AuditFlag, AuditOutput, AuditRecord } from './audit.js';
 import { type AuditTrail, contentHash, generateAuditId } from './audit.js';
 import { DeliveryError } from './errors.js';
 import type { InboxConfig, InboxManager } from './inbox.js';
 import type { LoggerManager } from './logger.js';
+import { buildLogEntry } from './logger.js';
 import type { LoopDetector } from './loop-detector.js';
 import type { MetricsServer } from './metrics.js';
 import type { ModuleInstance } from './module-instance.js';
@@ -79,6 +81,7 @@ export class RouteDispatcher {
 		mod: ModuleInstance,
 	): Promise<DispatchResult> {
 		const routeName = route.name;
+		const routeRef: RouteRef = { module: mod.name, name: routeName };
 		const actorId = route.then.actor;
 		const startTime = Date.now();
 		const auditFlags: AuditFlag[] = [];
@@ -86,14 +89,13 @@ export class RouteDispatcher {
 
 		const actor = mod.getActor(actorId);
 		if (!actor) {
-			const error = new DeliveryError(actorId, routeName, `Actor "${actorId}" not found`);
+			const error = new DeliveryError(actorId, routeRef, `Actor "${actorId}" not found`);
 			this.emit('error', error);
 			const durationMs = Date.now() - startTime;
 			const record = this.buildAuditRecord(
 				event,
-				routeName,
+				routeRef,
 				route,
-				mod.name,
 				actorId,
 				'error',
 				auditOutputs,
@@ -101,14 +103,14 @@ export class RouteDispatcher {
 				durationMs,
 			);
 			this.auditTrail.record(record);
-			await this.emitAuditLog(event, routeName, actorId, mod.name, record, 'error');
+			await this.emitAuditLog(event, routeRef, actorId, record, 'error');
 			return { auditId: record.id, status: 'error', durationMs, flags: auditFlags };
 		}
 
 		await this.emitLog('deliver.attempt', {
 			event_id: event.id,
 			trace_id: event.trace_id,
-			route: routeName,
+			route: routeRef,
 			target: actorId,
 			module: mod.name,
 		});
@@ -136,14 +138,14 @@ export class RouteDispatcher {
 					await this.emitLog('deliver.success', {
 						event_id: event.id,
 						trace_id: event.trace_id,
-						route: routeName,
+						route: routeRef,
 						target: actorId,
 						module: mod.name,
 						result: `Enqueued to inbox for session: ${sessionKey}`,
 					});
 					this.emit('delivery', {
 						event,
-						route: routeName,
+						route: routeRef,
 						actor: actorId,
 						status: 'held',
 						inbox: true,
@@ -152,9 +154,8 @@ export class RouteDispatcher {
 					const durationMs = Date.now() - startTime;
 					const record = this.buildAuditRecord(
 						event,
-						routeName,
+						routeRef,
 						route,
-						mod.name,
 						actorId,
 						'held',
 						[],
@@ -162,14 +163,14 @@ export class RouteDispatcher {
 						durationMs,
 					);
 					this.auditTrail.record(record);
-					await this.emitAuditLog(event, routeName, actorId, mod.name, record, 'held');
+					await this.emitAuditLog(event, routeRef, actorId, record, 'held');
 					return { auditId: record.id, status: 'held', durationMs, flags: [] };
 				} catch (err) {
 					// Graceful degradation: inbox failure → fall through to direct delivery
 					await this.emitLog('deliver.failure', {
 						event_id: event.id,
 						trace_id: event.trace_id,
-						route: routeName,
+						route: routeRef,
 						target: actorId,
 						module: mod.name,
 						error: err instanceof Error ? err.message : String(err),
@@ -200,7 +201,7 @@ export class RouteDispatcher {
 					await this.emitLog('audit.flag', {
 						event_id: event.id,
 						trace_id: event.trace_id,
-						route: routeName,
+						route: routeRef,
 						target: actorId,
 						module: mod.name,
 						result: flag.message,
@@ -214,13 +215,13 @@ export class RouteDispatcher {
 				await this.emitLog('audit.held', {
 					event_id: event.id,
 					trace_id: event.trace_id,
-					route: routeName,
+					route: routeRef,
 					target: actorId,
 					module: mod.name,
 					result: 'Output held for human review due to critical flags',
 					metadata: { flags: validation.flags.map((f) => f.message) },
 				});
-				this.emit('audit:held', { event, route: routeName, actor: actorId, validation });
+				this.emit('audit:held', { event, route: routeRef, actor: actorId, validation });
 			} else {
 				const result = await actor.deliver(event, deliveryConfig);
 				const durationMs = Date.now() - startTime;
@@ -238,14 +239,14 @@ export class RouteDispatcher {
 					await this.emitLog('deliver.success', {
 						event_id: event.id,
 						trace_id: event.trace_id,
-						route: routeName,
+						route: routeRef,
 						target: actorId,
 						duration_ms: durationMs,
 						module: mod.name,
 					});
 					this.emit('delivery', {
 						event,
-						route: routeName,
+						route: routeRef,
 						actor: actorId,
 						status: 'delivered',
 					});
@@ -254,7 +255,7 @@ export class RouteDispatcher {
 					await this.emitLog('deliver.failure', {
 						event_id: event.id,
 						trace_id: event.trace_id,
-						route: routeName,
+						route: routeRef,
 						target: actorId,
 						duration_ms: durationMs,
 						error: result.error?.message ?? result.status,
@@ -262,7 +263,7 @@ export class RouteDispatcher {
 					});
 					this.emit('delivery', {
 						event,
-						route: routeName,
+						route: routeRef,
 						actor: actorId,
 						status: result.status,
 					});
@@ -271,13 +272,13 @@ export class RouteDispatcher {
 		} catch (err) {
 			const durationMs = Date.now() - startTime;
 			deliveryStatus = 'error';
-			const error = new DeliveryError(actorId, routeName, 'Delivery failed', { cause: err });
+			const error = new DeliveryError(actorId, routeRef, 'Delivery failed', { cause: err });
 			this.emit('error', error);
 			this.metricsServer?.connectorErrors.inc({ connector: actorId });
 			await this.emitLog('deliver.failure', {
 				event_id: event.id,
 				trace_id: event.trace_id,
-				route: routeName,
+				route: routeRef,
 				target: actorId,
 				duration_ms: durationMs,
 				error: error.message,
@@ -288,9 +289,8 @@ export class RouteDispatcher {
 		const durationMs = Date.now() - startTime;
 		const record = this.buildAuditRecord(
 			event,
-			routeName,
+			routeRef,
 			route,
-			mod.name,
 			actorId,
 			deliveryStatus,
 			auditOutputs,
@@ -298,7 +298,7 @@ export class RouteDispatcher {
 			durationMs,
 		);
 		this.auditTrail.record(record);
-		await this.emitAuditLog(event, routeName, actorId, mod.name, record, deliveryStatus);
+		await this.emitAuditLog(event, routeRef, actorId, record, deliveryStatus);
 
 		return { auditId: record.id, status: deliveryStatus, durationMs, flags: auditFlags };
 	}
@@ -307,9 +307,8 @@ export class RouteDispatcher {
 
 	private buildAuditRecord(
 		event: OrgLoopEvent,
-		routeName: string,
+		routeRef: RouteRef,
 		route: RouteDefinition,
-		moduleName: string,
 		actorId: string,
 		status: DispatchStatus,
 		outputs: AuditOutput[],
@@ -328,9 +327,9 @@ export class RouteDispatcher {
 			input_source: event.source,
 			input_type: event.type,
 			input_content_hash: contentHash(event.payload),
-			route: routeName,
+			route: routeRef,
 			sop_file: route.with?.prompt_file ?? null,
-			module: moduleName,
+			module: routeRef.module,
 			actor: actorId,
 			delivery_status: recordStatus,
 			duration_ms: durationMs,
@@ -344,18 +343,17 @@ export class RouteDispatcher {
 
 	private async emitAuditLog(
 		event: OrgLoopEvent,
-		routeName: string,
+		routeRef: RouteRef,
 		actorId: string,
-		moduleName: string,
 		record: AuditRecord,
 		status: DispatchStatus,
 	): Promise<void> {
 		await this.emitLog('audit.record', {
 			event_id: event.id,
 			trace_id: event.trace_id,
-			route: routeName,
+			route: routeRef,
 			target: actorId,
-			module: moduleName,
+			module: routeRef.module,
 			metadata: {
 				audit_id: record.id,
 				delivery_status: status,
@@ -370,22 +368,6 @@ export class RouteDispatcher {
 		phase: LogPhase,
 		fields: Partial<LogEntry> & { module?: string },
 	): Promise<void> {
-		const entry: LogEntry = {
-			timestamp: new Date().toISOString(),
-			event_id: fields.event_id ?? '',
-			trace_id: fields.trace_id ?? '',
-			phase,
-			source: fields.source,
-			target: fields.target,
-			route: fields.route,
-			transform: fields.transform,
-			event_type: fields.event_type,
-			result: fields.result,
-			duration_ms: fields.duration_ms,
-			error: fields.error,
-			metadata: fields.metadata,
-			module: fields.module,
-		};
-		await this.loggerManager.log(entry);
+		await this.loggerManager.log(buildLogEntry(phase, fields));
 	}
 }

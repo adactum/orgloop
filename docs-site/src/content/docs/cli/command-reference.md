@@ -842,3 +842,17 @@ The runtime includes an HTTP server (default port 4800, configurable via `ORGLOO
 | `POST /webhook/:sourceId` | Receive webhook events for hook-based sources (coding-agent, webhook) |
 
 The HTTP server binds to `127.0.0.1` (localhost only). CLI commands like `orgloop status` and `orgloop stop` communicate with the running runtime via these endpoints.
+
+
+## Note: `--route` resolution
+
+`orgloop logs --route <name>` accepts either:
+
+- a fully-qualified `module/name` identifier (passed through verbatim), or
+- a bare route name resolved through the [route-resolver
+  precedence](../spec/cli-design#route-resolver--logs---route-precedence):
+  live `/api/routes` → JSONL log scan → bare-name fallback with ambiguity
+  warning.
+
+When a bare name matches routes in more than one module, the command
+shows entries from all matches and prints a warning.

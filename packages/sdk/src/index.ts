@@ -10,6 +10,7 @@ export type {
 	ActorConnector,
 	ConnectorIntegration,
 	ConnectorRegistration,
+	ConnectorScaffold,
 	ConnectorSetup,
 	CredentialValidator,
 	DeliveryResult,
@@ -100,6 +101,7 @@ export type {
 	RetryConfig,
 	RouteDefinition,
 	RouteDeliveryConfig,
+	RouteRef,
 	RouteThen,
 	RouteTransformRef,
 	RouteWhen,
@@ -114,4 +116,4 @@ export type {
 	TransformDefinition,
 	TransformErrorPolicy,
 } from './types.js';
-export { parseDuration } from './types.js';
+export { formatRouteRef, parseDuration, routeRefEquals, routeRefKey } from './types.js';

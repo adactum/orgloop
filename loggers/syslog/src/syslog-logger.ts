@@ -121,7 +121,10 @@ export function formatRfc5424(
 		if (entry.source) params.push(`source="${escapeSDValue(entry.source)}"`);
 		if (entry.event_type) params.push(`event_type="${escapeSDValue(entry.event_type)}"`);
 		if (entry.target) params.push(`target="${escapeSDValue(entry.target)}"`);
-		if (entry.route) params.push(`route="${escapeSDValue(entry.route)}"`);
+		if (entry.route) {
+			params.push(`route.name="${escapeSDValue(entry.route.name)}"`);
+			params.push(`route.module="${escapeSDValue(entry.route.module)}"`);
+		}
 		if (entry.transform) params.push(`transform="${escapeSDValue(entry.transform)}"`);
 		if (entry.duration_ms !== undefined) params.push(`duration_ms="${entry.duration_ms}"`);
 		if (entry.error) params.push(`error="${escapeSDValue(entry.error)}"`);

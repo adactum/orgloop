@@ -423,7 +423,7 @@ describe('E2E pipeline', () => {
 
 		// Verify route.match has route and target
 		const matchEntry = eventEntries.find((e) => e.phase === 'route.match');
-		expect(matchEntry?.route).toBe('phase-route');
+		expect(matchEntry?.route?.name).toBe('phase-route');
 		expect(matchEntry?.target).toBe('test-actor');
 
 		// Verify deliver.attempt and deliver.success reference the actor

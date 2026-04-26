@@ -16,7 +16,7 @@ describe('AuditTrail', () => {
 			input_source: 'test-source',
 			input_type: 'resource.changed',
 			input_content_hash: contentHash({ test: true }),
-			route: 'test-route',
+			route: { module: 'default', name: 'test-route' },
 			sop_file: null,
 			module: 'default',
 			actor: 'test-actor',
@@ -69,12 +69,12 @@ describe('AuditTrail', () => {
 
 	it('filters by route', () => {
 		const trail = new AuditTrail();
-		trail.record(makeRecord({ route: 'route-a' }));
-		trail.record(makeRecord({ route: 'route-b' }));
+		trail.record(makeRecord({ route: { module: 'default', name: 'route-a' } }));
+		trail.record(makeRecord({ route: { module: 'default', name: 'route-b' } }));
 
-		const results = trail.query({ route: 'route-a' });
+		const results = trail.query({ route: { module: 'default', name: 'route-a' } });
 		expect(results).toHaveLength(1);
-		expect(results[0].route).toBe('route-a');
+		expect(results[0].route).toEqual({ module: 'default', name: 'route-a' });
 	});
 
 	it('filters by actor', () => {
@@ -235,7 +235,7 @@ describe('Audit trail integration', () => {
 		expect(records).toHaveLength(1);
 		expect(records[0].input_event_id).toBe(event.id);
 		expect(records[0].input_source).toBe('test-source');
-		expect(records[0].route).toBe('test-route');
+		expect(records[0].route).toEqual({ module: 'default', name: 'test-route' });
 		expect(records[0].actor).toBe('test-actor');
 		expect(records[0].delivery_status).toBe('delivered');
 		expect(records[0].input_content_hash).toBeTruthy();

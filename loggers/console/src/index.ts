@@ -8,6 +8,8 @@ import { ConsoleLogger } from './console-logger.js';
 export function register(): LoggerRegistration {
 	return {
 		id: 'console',
+		kind: 'logger',
+		description: 'ANSI-coloured stderr logger',
 		logger: ConsoleLogger,
 		configSchema: {
 			type: 'object',

@@ -11,6 +11,8 @@ import { LinearWebhookSource } from './source.js';
 export default function register(): ConnectorRegistration {
 	return {
 		id: 'linear-webhook',
+		kind: 'source',
+		description: 'Linear webhook receiver',
 		source: LinearWebhookSource,
 		setup: {
 			env_vars: [
@@ -28,6 +30,20 @@ export default function register(): ConnectorRegistration {
 					platform: 'linear',
 				},
 			],
+			scaffold: {
+				source: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+sources:
+  - id: linear-webhook
+    description: Linear webhook receiver
+    connector: "@orgloop/connector-linear-webhook"
+    config:
+      secret: "\${LINEAR_WEBHOOK_SECRET}"
+    emits:
+      - resource.changed
+`,
+			},
 		},
 	};
 }

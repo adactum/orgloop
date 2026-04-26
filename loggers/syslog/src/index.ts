@@ -8,6 +8,8 @@ import { SyslogLogger } from './syslog-logger.js';
 export function register(): LoggerRegistration {
 	return {
 		id: 'syslog',
+		kind: 'logger',
+		description: 'RFC 5424 syslog logger',
 		logger: SyslogLogger,
 		configSchema: {
 			type: 'object',

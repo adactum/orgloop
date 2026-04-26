@@ -354,3 +354,10 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 ---
 
 Built by [Charlie Hulcher](https://github.com/c-h-) — running in production at [Kindo](https://kindo.ai).
+
+
+## Route identity
+
+OrgLoop routes carry a compound `RouteRef = { module, name }` identity at
+every persistence boundary (audit, history, logs, metrics). Bare route
+names appear only as a CLI input fallback resolved by the route-resolver.

@@ -19,6 +19,8 @@ export { CodingAgentSource } from './source.js';
 export default function register(): ConnectorRegistration {
 	return {
 		id: 'coding-agent',
+		kind: 'source',
+		description: 'Harness-agnostic coding-agent webhook receiver (Claude Code, Codex, …)',
 		source: CodingAgentSource,
 		configSchema: {
 			type: 'object',
@@ -39,6 +41,21 @@ export default function register(): ConnectorRegistration {
 					required: false,
 				},
 			],
+			scaffold: {
+				source: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+sources:
+  - id: coding-agent
+    description: Coding agent session lifecycle events
+    connector: "@orgloop/connector-coding-agent"
+    config:
+      harness: claude-code
+      # secret: "\${WEBHOOK_SECRET}"
+    emits:
+      - actor.stopped
+`,
+			},
 		},
 	};
 }

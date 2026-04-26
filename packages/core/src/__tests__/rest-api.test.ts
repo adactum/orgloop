@@ -81,7 +81,8 @@ describe('REST API', () => {
 				'status',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const result = (await handler(new URLSearchParams())) as Record<string, unknown>;
+			const envelope = (await handler(new URLSearchParams())) as { body: Record<string, unknown> };
+			const result = envelope.body;
 
 			expect(result.health).toBe('ok');
 			expect(result.running).toBe(true);
@@ -102,7 +103,10 @@ describe('REST API', () => {
 				'routes',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const result = (await handler(new URLSearchParams())) as Array<Record<string, unknown>>;
+			const envelope = (await handler(new URLSearchParams())) as {
+				body: Array<Record<string, unknown>>;
+			};
+			const result = envelope.body;
 
 			expect(result).toHaveLength(1);
 			expect(result[0].name).toBe('test-route');
@@ -127,7 +131,10 @@ describe('REST API', () => {
 				'routes',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const result = (await handler(new URLSearchParams())) as Array<Record<string, unknown>>;
+			const envelope = (await handler(new URLSearchParams())) as {
+				body: Array<Record<string, unknown>>;
+			};
+			const result = envelope.body;
 
 			expect(result[0].fire_count).toBe(1);
 			expect(result[0].last_fired).toBeTruthy();
@@ -144,8 +151,8 @@ describe('REST API', () => {
 				'events',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const result = (await handler(new URLSearchParams())) as unknown[];
-			expect(result).toEqual([]);
+			const envelope = (await handler(new URLSearchParams())) as { body: unknown[] };
+			expect(envelope.body).toEqual([]);
 		});
 
 		it('records events after processing', async () => {
@@ -163,12 +170,15 @@ describe('REST API', () => {
 				'events',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const result = (await handler(new URLSearchParams())) as Array<Record<string, unknown>>;
+			const envelope = (await handler(new URLSearchParams())) as {
+				body: Array<Record<string, unknown>>;
+			};
+			const result = envelope.body;
 
 			expect(result).toHaveLength(1);
 			expect(result[0].source).toBe('test-source');
 			expect(result[0].type).toBe('resource.changed');
-			expect(result[0].matched_routes).toEqual(['test-route']);
+			expect(result[0].matched_routes).toEqual([{ module: 'test', name: 'test-route' }]);
 			expect(result[0].processing_ms).toBeGreaterThanOrEqual(0);
 		});
 
@@ -187,11 +197,15 @@ describe('REST API', () => {
 				'events',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const noMatch = (await handler(new URLSearchParams({ source: 'other-source' }))) as unknown[];
-			expect(noMatch).toEqual([]);
+			const noMatchEnvelope = (await handler(new URLSearchParams({ source: 'other-source' }))) as {
+				body: unknown[];
+			};
+			expect(noMatchEnvelope.body).toEqual([]);
 
-			const match = (await handler(new URLSearchParams({ source: 'test-source' }))) as unknown[];
-			expect(match).toHaveLength(1);
+			const matchEnvelope = (await handler(new URLSearchParams({ source: 'test-source' }))) as {
+				body: unknown[];
+			};
+			expect(matchEnvelope.body).toHaveLength(1);
 		});
 
 		it('respects limit parameter', async () => {
@@ -211,8 +225,8 @@ describe('REST API', () => {
 				'events',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const result = (await handler(new URLSearchParams({ limit: '2' }))) as unknown[];
-			expect(result).toHaveLength(2);
+			const envelope = (await handler(new URLSearchParams({ limit: '2' }))) as { body: unknown[] };
+			expect(envelope.body).toHaveLength(2);
 		});
 	});
 
@@ -226,7 +240,10 @@ describe('REST API', () => {
 				'sources',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const result = (await handler(new URLSearchParams())) as Array<Record<string, unknown>>;
+			const envelope = (await handler(new URLSearchParams())) as {
+				body: Array<Record<string, unknown>>;
+			};
+			const result = envelope.body;
 
 			expect(result).toHaveLength(1);
 			expect(result[0].id).toBe('test-source');
@@ -248,8 +265,8 @@ describe('REST API', () => {
 				'metrics',
 			) as (q: URLSearchParams) => Promise<unknown>;
 
-			const result = (await handler(new URLSearchParams())) as Record<string, unknown>;
-			expect(result.error).toContain('Metrics not enabled');
+			const envelope = (await handler(new URLSearchParams())) as { body: Record<string, unknown> };
+			expect(envelope.body.error).toContain('Metrics not enabled');
 		});
 	});
 });

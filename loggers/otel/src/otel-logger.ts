@@ -110,7 +110,13 @@ export class OtelLogger implements Logger {
 
 			if (entry.source) attributes['orgloop.source'] = entry.source;
 			if (entry.target) attributes['orgloop.target'] = entry.target;
-			if (entry.route) attributes['orgloop.route'] = entry.route;
+			if (entry.route) {
+				// OTel attributes must be scalars — emit two strings, never the
+				// RouteRef object directly. TypeScript will not catch the
+				// object-to-attribute mistake; this is the only correct shape.
+				attributes['orgloop.route.name'] = entry.route.name;
+				attributes['orgloop.route.module'] = entry.route.module;
+			}
 			if (entry.transform) attributes['orgloop.transform'] = entry.transform;
 			if (entry.event_type) attributes['orgloop.event_type'] = entry.event_type;
 			if (entry.duration_ms !== undefined) attributes['orgloop.duration_ms'] = entry.duration_ms;

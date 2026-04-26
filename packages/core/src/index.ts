@@ -4,7 +4,13 @@
  * Public API exports for library mode.
  */
 
-export type { AuditFlag, AuditOutput, AuditRecord, AuditTrailOptions } from './audit.js';
+export type {
+	AuditFlag,
+	AuditOutput,
+	AuditQuery,
+	AuditRecord,
+	AuditTrailOptions,
+} from './audit.js';
 // Audit trail
 export { AuditTrail, contentHash, generateAuditId } from './audit.js';
 export type { BusHandler, EventBus } from './bus.js';
@@ -25,12 +31,26 @@ export {
 export type { EventHistoryOptions, EventHistoryQuery, EventRecord } from './event-history.js';
 // Event history
 export { EventHistory } from './event-history.js';
-export type { ApiHandler, RuntimeControl } from './http.js';
+// Event processor (P1a extraction)
+export { EventProcessor } from './event-processor.js';
+// Handler bundles
+export type {
+	ApiHandler as BundleApiHandler,
+	ApiResponse,
+	ControlHandler,
+	HandlerBundle,
+	WebhookBundleHandler,
+} from './handler-bundle.js';
+export type {
+	ApiHandler,
+	ControlHandlerFn,
+	RuntimeControl,
+} from './http.js';
 // HTTP webhook server
 export { DEFAULT_HTTP_PORT, WebhookServer } from './http.js';
 export type { InboxConfig, InboxManagerOptions } from './inbox.js';
 export { InboxManager } from './inbox.js';
-export { registerInboxApi } from './inbox-api.js';
+export { buildInboxApiBundle, registerInboxApi } from './inbox-api.js';
 // Inbox
 export type { DrainResult, InboxEntry, InboxStore } from './inbox-store.js';
 export { InMemoryInboxStore } from './inbox-store.js';
@@ -53,24 +73,34 @@ export type { StripFrontMatterResult } from './prompt.js';
 export { stripFrontMatter } from './prompt.js';
 export { ModuleRegistry } from './registry.js';
 // REST API
-export { registerRestApi } from './rest-api.js';
+export { buildRestApiBundle, registerRestApi } from './rest-api.js';
+// Route stats
+export type { RouteStats } from './route-stats-store.js';
+export { RouteStatsStore } from './route-stats-store.js';
 export type { MatchedRoute } from './router.js';
 // Router
 export { matchRoutes } from './router.js';
 export type {
 	LoadModuleOptions,
-	RouteStats,
 	RuntimeOptions,
 	SingleModuleOptions,
 	SourceCircuitBreakerOptions,
 } from './runtime.js';
 // Runtime (single entry point — replaces the legacy OrgLoop wrapper)
 export { Runtime } from './runtime.js';
+export type { RouteDetail, SourceDetail } from './runtime-accessors.js';
+// Runtime control bundle — standalone utility for custom kernel setups
+export { buildRuntimeControlBundle } from './runtime-control-bundle.js';
 // Scheduler
 export { Scheduler } from './scheduler.js';
 export type { LoadConfigOptions } from './schema.js';
-// Config loading
-export { buildConfig, loadConfig } from './schema.js';
+// Config loading + canonical Ajv authority
+export {
+	buildConfig,
+	compileWithCanonicalAjv,
+	getCanonicalAjv,
+	loadConfig,
+} from './schema.js';
 export type { CheckpointStore, EventStore, WalEntry } from './store.js';
 // Stores
 export {

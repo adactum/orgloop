@@ -231,3 +231,11 @@ The CLI is the primary interface. The library mode exposes the `Runtime` class f
 - [Building Connectors](/guides/connector-authoring/) -- implement a source or target
 - [Building Transforms](/guides/transform-authoring/) -- implement a transform
 - Source code: [github.com/orgloop/orgloop](https://github.com/orgloop/orgloop)
+
+
+## API registration
+
+First-party REST, inbox, control, and webhook handlers register through
+`WebhookServer.registerBundle(HandlerBundle)`. Legacy `registerRestApi` /
+`registerInboxApi` are deprecated thin shims that delegate to the bundle
+path; new code should use the bundle surface directly.

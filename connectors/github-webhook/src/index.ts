@@ -11,6 +11,8 @@ import { GitHubWebhookSource } from './source.js';
 export default function register(): ConnectorRegistration {
 	return {
 		id: 'github-webhook',
+		kind: 'source',
+		description: 'GitHub webhook receiver (real-time event delivery)',
 		source: GitHubWebhookSource,
 		setup: {
 			env_vars: [
@@ -35,6 +37,20 @@ export default function register(): ConnectorRegistration {
 					platform: 'github',
 				},
 			],
+			scaffold: {
+				source: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+sources:
+  - id: github-webhook
+    description: GitHub webhook receiver
+    connector: "@orgloop/connector-github-webhook"
+    config:
+      secret: "\${GITHUB_WEBHOOK_SECRET}"
+    emits:
+      - resource.changed
+`,
+			},
 		},
 	};
 }

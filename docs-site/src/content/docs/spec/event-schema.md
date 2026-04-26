@@ -57,3 +57,25 @@ description: "JSON Schema definition for the OrgLoop event envelope — id, time
   }
 }
 ```
+
+
+## Route identity (RouteRef)
+
+Routes carry a compound identity at every persistence boundary (audit, history,
+log entries, loop-detector chain nodes):
+
+```ts
+interface RouteRef {
+  module: string; // module that owns the route
+  name: string;   // module-local route name
+}
+```
+
+Two modules may legitimately declare a route with the same `name`. The
+`module` qualifier disambiguates them. Internal code constructs `RouteRef`
+explicitly; CLI commands accept bare names and resolve them through
+`route-resolver.ts` (see [CLI Design](./cli-design)).
+
+**`EventFilter.route` removed.** Bus subscribers no longer carry a route
+filter — match on `source` / `type` and consult `EventRecord.matched_routes`
+(`RouteRef[]`) for downstream filtering.

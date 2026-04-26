@@ -652,3 +652,10 @@ Created:
   ├── package.json
   └── README.md
 ```
+
+
+## EventFilter
+
+`EventFilter.route` has been removed. Bus subscribers should match on
+`source` / `type` and filter downstream by `matched_routes` (`RouteRef[]`)
+on `EventRecord`.

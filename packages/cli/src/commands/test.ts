@@ -5,8 +5,8 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import type { OrgLoopEvent } from '@orgloop/sdk';
-import { generateEventId, generateTraceId } from '@orgloop/sdk';
+import type { OrgLoopEvent, RouteRef } from '@orgloop/sdk';
+import { formatRouteRef, generateEventId, generateTraceId } from '@orgloop/sdk';
 import type { Command } from 'commander';
 import { loadCliConfig } from '../config.js';
 import * as output from '../output.js';
@@ -158,7 +158,7 @@ export function registerTestCommand(program: Command): void {
 				if (matchedRoutes.length === 0) {
 					output.warn('No routes matched this event.');
 					if (output.isJsonMode()) {
-						output.json({ event, matched_routes: 0, results: [] });
+						output.json({ event, matched_routes: [], matched_routes_count: 0, results: [] });
 					}
 					return;
 				}
@@ -223,7 +223,17 @@ export function registerTestCommand(program: Command): void {
 				);
 
 				if (output.isJsonMode()) {
-					output.json({ event, matched_routes: matchedRoutes.length, results });
+					const matched: RouteRef[] = matchedRoutes.map((r) => ({
+						module: '(test)',
+						name: r.name,
+					}));
+					output.json({
+						event,
+						matched_routes: matched,
+						matched_routes_count: matchedRoutes.length,
+						matched_route_display: matched.map((r) => formatRouteRef(r)),
+						results,
+					});
 				}
 			} catch (err) {
 				output.error(`Test failed: ${err instanceof Error ? err.message : String(err)}`);

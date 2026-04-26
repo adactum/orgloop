@@ -22,46 +22,40 @@ import type {
 	Transform,
 } from '@orgloop/sdk';
 import { generateTraceId } from '@orgloop/sdk';
-import type { AuditRecord, AuditTrailOptions } from './audit.js';
+import type { AuditQuery, AuditRecord, AuditTrailOptions } from './audit.js';
 import { AuditTrail } from './audit.js';
 import type { EventBus } from './bus.js';
 import { InMemoryBus } from './bus.js';
 import { ConnectorError, ModuleConflictError, ModuleNotFoundError } from './errors.js';
 import type { EventHistoryOptions, EventHistoryQuery, EventRecord } from './event-history.js';
 import { EventHistory } from './event-history.js';
+import { EventProcessor } from './event-processor.js';
 import type { RuntimeControl } from './http.js';
 import { DEFAULT_HTTP_PORT, WebhookServer } from './http.js';
 import type { InboxManagerOptions } from './inbox.js';
 import { InboxManager } from './inbox.js';
-import { LoggerManager } from './logger.js';
+import { buildLogEntry, LoggerManager } from './logger.js';
 import type { LoopCheckResult, LoopDetectorOptions } from './loop-detector.js';
 import { LoopDetector } from './loop-detector.js';
 import { MetricsServer } from './metrics.js';
-import type { ModuleConfig } from './module-instance.js';
-import { ModuleInstance } from './module-instance.js';
+import { type ModuleConfig, ModuleInstance } from './module-instance.js';
 import type { OutputValidatorOptions } from './output-validator.js';
 import { OutputValidator } from './output-validator.js';
 import { ModuleRegistry } from './registry.js';
-import type { DispatchResult } from './route-dispatcher.js';
 import { RouteDispatcher } from './route-dispatcher.js';
-import { matchRoutes } from './router.js';
+import type { RouteStats } from './route-stats-store.js';
 import { buildRouteDetails, buildSourceDetails } from './runtime-accessors.js';
 import type { CrashHandlerHandle, HeartbeatHandle } from './runtime-crash-handlers.js';
 import { installCrashHandlers, startHeartbeat } from './runtime-crash-handlers.js';
 import { Scheduler } from './scheduler.js';
 import type { CheckpointStore } from './store.js';
 import { FileCheckpointStore, InMemoryCheckpointStore } from './store.js';
-import type { TransformPipelineOptions } from './transform.js';
-import { executeTransformPipeline } from './transform.js';
 export interface SourceCircuitBreakerOptions {
 	failureThreshold?: number;
 	retryAfterMs?: number;
 }
 
-export interface RouteStats {
-	fireCount: number;
-	lastFiredAt: string | null;
-}
+export type { RouteStats };
 
 export interface RuntimeOptions {
 	bus?: EventBus;
@@ -133,13 +127,14 @@ class Runtime extends EventEmitter implements RuntimeControl {
 	private readonly metricsPort: number | undefined;
 
 	private readonly eventHistory: EventHistory;
-	private readonly routeStats = new Map<string, RouteStats>();
 
 	private readonly auditTrail: AuditTrail;
 	private readonly outputValidator: OutputValidator;
 	private readonly loopDetector: LoopDetector;
 
 	private readonly inboxManager: InboxManager | null;
+
+	private readonly eventProcessor: EventProcessor;
 
 	constructor(options?: RuntimeOptions) {
 		super();
@@ -187,6 +182,16 @@ class Runtime extends EventEmitter implements RuntimeControl {
 			auditTrail: this.auditTrail,
 			metricsServer: this.metricsServer,
 			emit: (event, data) => this.emit(event, data),
+		});
+
+		this.eventProcessor = new EventProcessor({
+			loopDetector: this.loopDetector,
+			bus: this.bus,
+			eventHistory: this.eventHistory,
+			metricsServer: this.metricsServer,
+			routeDispatcher: this.routeDispatcher,
+			logSink: this.loggerManager,
+			emitter: { emit: (event, data) => this.emit(event, data) },
 		});
 	}
 	static singleModule(config: OrgLoopConfig, options?: SingleModuleOptions): Runtime {
@@ -246,6 +251,13 @@ class Runtime extends EventEmitter implements RuntimeControl {
 	async startHttpServer(): Promise<void> {
 		if (this.httpStarted) return;
 		this.webhookServer.runtime = this;
+		const { buildRuntimeControlBundle } = await import('./runtime-control-bundle.js');
+		this.webhookServer.registerBundle(
+			buildRuntimeControlBundle({
+				app: this,
+				shutdown: () => this.stop(),
+			}),
+		);
 		await this.webhookServer.start(this.httpPort);
 		this.httpStarted = true;
 	}
@@ -486,199 +498,7 @@ class Runtime extends EventEmitter implements RuntimeControl {
 		event: OrgLoopEvent,
 		mod: import('./module-instance.js').ModuleInstance,
 	): Promise<void> {
-		const eventStartTime = process.hrtime.bigint();
-		this.emit('event', event);
-
-		await this.emitLog('source.emit', {
-			event_id: event.id,
-			trace_id: event.trace_id,
-			source: event.source,
-			event_type: event.type,
-			module: mod.name,
-		});
-		if (event.trace_id) {
-			const loopCheck = this.loopDetector.check(
-				event.trace_id,
-				event.id,
-				event.source,
-				event.type,
-				null,
-				null,
-			);
-
-			if (loopCheck.circuit_broken) {
-				await this.emitLog('loop.circuit_broken', {
-					event_id: event.id,
-					trace_id: event.trace_id,
-					source: event.source,
-					module: mod.name,
-					result: `Circuit broken: event chain depth ${loopCheck.chain_depth} exceeds limit`,
-					metadata: {
-						chain_depth: loopCheck.chain_depth,
-						chain: loopCheck.chain.map((n) => n.event_id),
-					},
-				});
-				this.emit('loop:circuit_broken', { event, loopCheck });
-				await this.bus.ack(event.id);
-				return;
-			}
-
-			if (loopCheck.loop_detected) {
-				await this.emitLog('loop.detected', {
-					event_id: event.id,
-					trace_id: event.trace_id,
-					source: event.source,
-					module: mod.name,
-					result: `Loop detected: chain depth ${loopCheck.chain_depth}`,
-					metadata: {
-						chain_depth: loopCheck.chain_depth,
-						flags: loopCheck.flags.map((f) => f.message),
-					},
-				});
-				this.emit('loop:detected', { event, loopCheck });
-			}
-		}
-
-		await this.bus.publish(event);
-
-		const matched = matchRoutes(event, mod.getRoutes());
-
-		if (matched.length === 0) {
-			await this.emitLog('route.no_match', {
-				event_id: event.id,
-				trace_id: event.trace_id,
-				source: event.source,
-				module: mod.name,
-			});
-
-			this.eventHistory.push(this.buildEventRecord(event, mod.name, [], [], [], eventStartTime));
-			await this.bus.ack(event.id);
-			return;
-		}
-
-		const matchedRouteNames: string[] = [];
-		const sopFiles: string[] = [];
-		const actorIds: string[] = [];
-		const now = new Date().toISOString();
-
-		for (const match of matched) {
-			const { route } = match;
-			const routeStartTime = process.hrtime.bigint();
-
-			matchedRouteNames.push(route.name);
-			actorIds.push(route.then.actor);
-			if (route.with?.prompt_file) {
-				sopFiles.push(route.with.prompt_file);
-			}
-
-			const stats = this.routeStats.get(route.name);
-			if (stats) {
-				stats.fireCount++;
-				stats.lastFiredAt = now;
-			} else {
-				this.routeStats.set(route.name, { fireCount: 1, lastFiredAt: now });
-			}
-
-			await this.emitLog('route.match', {
-				event_id: event.id,
-				trace_id: event.trace_id,
-				route: route.name,
-				source: event.source,
-				target: route.then.actor,
-				module: mod.name,
-			});
-
-			let transformedEvent = event;
-			if (route.transforms && route.transforms.length > 0) {
-				const pipelineOptions: TransformPipelineOptions = {
-					definitions: mod.config.transforms,
-					packageTransforms: mod.getTransformsMap(),
-					onLog: (partial) => {
-						void this.emitLog(partial.phase ?? 'transform.start', {
-							...partial,
-							event_id: partial.event_id ?? event.id,
-							trace_id: partial.trace_id ?? event.trace_id,
-							route: route.name,
-							module: mod.name,
-						});
-					},
-				};
-
-				const context = {
-					source: event.source,
-					target: route.then.actor,
-					eventType: event.type,
-					routeName: route.name,
-				};
-
-				try {
-					const result = await executeTransformPipeline(
-						event,
-						context,
-						route.transforms,
-						pipelineOptions,
-					);
-
-					if (result.dropped || !result.event) {
-						this.recordRouteMetrics(route.name, route.then.actor, 'skipped', routeStartTime);
-						continue;
-					}
-					transformedEvent = result.event;
-				} catch (err) {
-					this.emit('error', err as Error);
-					this.recordRouteMetrics(route.name, route.then.actor, 'error', routeStartTime);
-					continue;
-				}
-			}
-
-			const dispatchResult: DispatchResult = await this.routeDispatcher.dispatch(
-				transformedEvent,
-				route,
-				mod,
-			);
-			this.recordRouteMetrics(route.name, route.then.actor, dispatchResult.status, routeStartTime);
-		}
-
-		this.eventHistory.push(
-			this.buildEventRecord(event, mod.name, matchedRouteNames, sopFiles, actorIds, eventStartTime),
-		);
-
-		await this.bus.ack(event.id);
-	}
-
-	private recordRouteMetrics(
-		routeName: string,
-		actor: string,
-		status: DispatchResult['status'],
-		startTime: bigint,
-	): void {
-		if (!this.metricsServer) return;
-		const elapsed = Number(process.hrtime.bigint() - startTime) / 1e9;
-		this.metricsServer.eventsRouted.inc({ route: routeName, connector: actor, status });
-		this.metricsServer.eventProcessingSeconds.observe({ route: routeName, status }, elapsed);
-	}
-
-	private buildEventRecord(
-		event: OrgLoopEvent,
-		moduleName: string,
-		matchedRouteNames: string[],
-		sopFiles: string[],
-		actorIds: string[],
-		startTime: bigint,
-	): EventRecord {
-		const elapsedMs = Number(process.hrtime.bigint() - startTime) / 1e6;
-		return {
-			event_id: event.id,
-			timestamp: event.timestamp,
-			source: event.source,
-			type: event.type,
-			matched_routes: matchedRouteNames,
-			sop_files: sopFiles,
-			actors: actorIds,
-			processing_ms: Math.round(elapsedMs * 100) / 100,
-			module: moduleName,
-			trace_id: event.trace_id,
-		};
+		await this.eventProcessor.processEvent(event, mod);
 	}
 	async pollSource(sourceId: string, moduleName?: string): Promise<void> {
 		const mod = this.resolveTargetModule(moduleName, 'pollSource');
@@ -876,25 +696,14 @@ class Runtime extends EventEmitter implements RuntimeControl {
 		return this.eventHistory.query(query);
 	}
 
-	getRouteStats(): ReadonlyMap<string, RouteStats> {
-		return this.routeStats;
-	}
-
 	getRouteDetails() {
-		return buildRouteDetails(this.registry.list(), this.routeStats);
+		return buildRouteDetails(this.registry.list());
 	}
 
 	getSourceDetails() {
 		return buildSourceDetails(this.registry.list());
 	}
-	queryAuditTrail(filter?: {
-		trace_id?: string;
-		route?: string;
-		actor?: string;
-		held_only?: boolean;
-		flagged_only?: boolean;
-		limit?: number;
-	}): AuditRecord[] {
+	queryAuditTrail(filter?: AuditQuery): AuditRecord[] {
 		return this.auditTrail.query(filter);
 	}
 
@@ -942,24 +751,7 @@ class Runtime extends EventEmitter implements RuntimeControl {
 		phase: LogPhase,
 		fields: Partial<LogEntry> & { module?: string },
 	): Promise<void> {
-		const entry: LogEntry = {
-			timestamp: new Date().toISOString(),
-			event_id: fields.event_id ?? '',
-			trace_id: fields.trace_id ?? '',
-			phase,
-			source: fields.source,
-			target: fields.target,
-			route: fields.route,
-			transform: fields.transform,
-			event_type: fields.event_type,
-			result: fields.result,
-			duration_ms: fields.duration_ms,
-			error: fields.error,
-			metadata: fields.metadata,
-			module: fields.module,
-		};
-
-		await this.loggerManager.log(entry);
+		await this.loggerManager.log(buildLogEntry(phase, fields));
 	}
 }
 

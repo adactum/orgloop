@@ -8,11 +8,36 @@
 import { access, readdir, readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import type { ErrorObject } from 'ajv';
+import type { ErrorObject, ValidateFunction } from 'ajv';
 import AjvModule from 'ajv';
 import yaml from 'js-yaml';
 
+// Single canonical Ajv class for the entire workspace. Every other module
+// reuses this through `getCanonicalAjv()` / `compileWithCanonicalAjv()` so
+// there is exactly one Ajv instantiation in the build.
 const Ajv = AjvModule.default ?? AjvModule;
+
+// ─── Canonical Ajv authority ─────────────────────────────────────────────────
+
+let canonicalAjv: InstanceType<typeof Ajv> | null = null;
+const compiledCache = new WeakMap<object, ValidateFunction>();
+
+/** Returns the workspace-singleton Ajv instance. */
+export function getCanonicalAjv(): InstanceType<typeof Ajv> {
+	if (!canonicalAjv) {
+		canonicalAjv = new Ajv({ allErrors: true, strict: false });
+	}
+	return canonicalAjv;
+}
+
+/** Compile a JSON schema using the canonical Ajv (cached by schema identity). */
+export function compileWithCanonicalAjv(schema: Record<string, unknown>): ValidateFunction {
+	const cached = compiledCache.get(schema);
+	if (cached) return cached;
+	const validator = getCanonicalAjv().compile(schema);
+	compiledCache.set(schema, validator);
+	return validator;
+}
 
 import type {
 	ActorInstanceConfig,
@@ -244,8 +269,7 @@ export async function loadConfig(options: LoadConfigOptions): Promise<OrgLoopCon
 
 	// Load and validate root config
 	const raw = await loadYamlFile(resolve(configPath));
-	const ajv = new Ajv({ allErrors: true });
-	const validate = ajv.compile(projectSchema);
+	const validate = compileWithCanonicalAjv(projectSchema);
 	if (!validate(raw)) {
 		const errors = (validate.errors ?? []).map(
 			(e: ErrorObject) => `${e.instancePath || '/'}: ${e.message}`,

@@ -194,6 +194,23 @@ export interface LoggerDefinition {
 	config: Record<string, unknown>;
 }
 
+// ─── Route Identity ──────────────────────────────────────────────────────────
+
+/**
+ * Canonical route identity.
+ *
+ * Routes are module-scoped — a route with the same `name` may exist in two
+ * different modules and represent unrelated wiring. RouteRef composes the
+ * (module, name) pair so identity-bearing surfaces (audit, history, metrics,
+ * filters) cannot accidentally collide entries from different modules.
+ */
+export interface RouteRef {
+	/** Module that owns the route */
+	module: string;
+	/** Module-local route name */
+	name: string;
+}
+
 // ─── Log Entry ────────────────────────────────────────────────────────────────
 
 /** Pipeline phase identifiers */
@@ -244,8 +261,8 @@ export interface LogEntry {
 	source?: string;
 	/** Actor ID */
 	target?: string;
-	/** Route name */
-	route?: string;
+	/** Route identity (module + name) */
+	route?: RouteRef;
 	/** Transform name */
 	transform?: string;
 	/** Event type */
@@ -392,8 +409,6 @@ export interface EventFilter {
 	source?: string;
 	/** Filter by event type */
 	type?: OrgLoopEventType;
-	/** Filter by route name */
-	route?: string;
 }
 
 /** Event handler function */
@@ -456,6 +471,32 @@ export interface RuntimeConfig {
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
+
+// ─── RouteRef helpers ────────────────────────────────────────────────────────
+
+/**
+ * Stable string key for a RouteRef.
+ *
+ * JSON tuple encoding — collision-proof for unconstrained module/name strings
+ * (e.g. names containing colons or slashes). Use as a Map key, not for display.
+ */
+export function routeRefKey(ref: RouteRef): string {
+	return JSON.stringify([ref.module, ref.name]);
+}
+
+/**
+ * Display-only formatting for a RouteRef.
+ *
+ * Never use the result as identity (use `routeRefKey` for that).
+ */
+export function formatRouteRef(ref: RouteRef): string {
+	return `${ref.module}/${ref.name}`;
+}
+
+/** Structural equality for RouteRefs. */
+export function routeRefEquals(a: RouteRef, b: RouteRef): boolean {
+	return a.module === b.module && a.name === b.name;
+}
 
 /** Parse a duration string to milliseconds */
 export function parseDuration(duration: DurationString): number {

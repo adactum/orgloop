@@ -8,7 +8,8 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { ModuleStatus, RuntimeStatus, SourceHealthState } from '@orgloop/sdk';
+import type { ModuleStatus, RouteRef, RuntimeStatus, SourceHealthState } from '@orgloop/sdk';
+import { formatRouteRef } from '@orgloop/sdk';
 import chalk from 'chalk';
 import type { Command } from 'commander';
 import { loadCliConfig } from '../config.js';
@@ -49,7 +50,7 @@ interface LogEntry {
 	phase: string;
 	source?: string;
 	event_type?: string;
-	route?: string;
+	route?: RouteRef | string;
 	result?: string;
 }
 
@@ -83,6 +84,10 @@ export function selectRecentEvents(entries: LogEntry[], count: number): LogEntry
 	return [...eventMap.values()]
 		.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
 		.slice(-count);
+}
+
+function formatLogRoute(route: RouteRef | string): string {
+	return typeof route === 'string' ? route : formatRouteRef(route);
 }
 
 function healthStatusColor(status: string): string {
@@ -316,7 +321,7 @@ export function registerStatusCommand(program: Command): void {
 									time,
 									source: e.source ?? '—',
 									type: e.event_type ?? '—',
-									route: e.route ?? '—',
+									route: e.route ? formatLogRoute(e.route) : '—',
 									status: e.result ?? e.phase.split('.')[1] ?? '—',
 								};
 							}),
@@ -471,7 +476,7 @@ export function registerStatusCommand(program: Command): void {
 								time,
 								source: e.source ?? '—',
 								type: e.event_type ?? '—',
-								route: e.route ?? '—',
+								route: e.route ? formatLogRoute(e.route) : '—',
 								status: e.result ?? e.phase.split('.')[1] ?? '—',
 							};
 						}),

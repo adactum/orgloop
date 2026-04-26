@@ -38,14 +38,14 @@ export class MetricsServer {
 		this.eventsRouted = new Counter({
 			name: 'orgloop_events_routed_total',
 			help: 'Total number of events routed to actors (labelled by dispatch status)',
-			labelNames: ['route', 'connector', 'status'] as const,
+			labelNames: ['route', 'module', 'connector', 'status'] as const,
 			registers: [this.registry],
 		});
 
 		this.eventProcessingSeconds = new Histogram({
 			name: 'orgloop_event_processing_seconds',
 			help: 'Time spent processing events through the routing pipeline',
-			labelNames: ['route', 'status'] as const,
+			labelNames: ['route', 'module', 'status'] as const,
 			buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 			registers: [this.registry],
 		});

@@ -5,6 +5,8 @@
  * a consistent shape to catch and inspect.
  */
 
+import type { RouteRef } from '@orgloop/sdk';
+
 export class OrgLoopError extends Error {
 	readonly code: string;
 
@@ -44,13 +46,13 @@ export class TransformError extends OrgLoopError {
 
 export class DeliveryError extends OrgLoopError {
 	readonly actorId: string;
-	readonly routeName: string;
+	readonly route: RouteRef;
 
-	constructor(actorId: string, routeName: string, message: string, options?: ErrorOptions) {
-		super('DELIVERY_ERROR', `[${actorId}/${routeName}] ${message}`, options);
+	constructor(actorId: string, route: RouteRef, message: string, options?: ErrorOptions) {
+		super('DELIVERY_ERROR', `[${actorId}/${route.module}/${route.name}] ${message}`, options);
 		this.name = 'DeliveryError';
 		this.actorId = actorId;
-		this.routeName = routeName;
+		this.route = route;
 	}
 }
 

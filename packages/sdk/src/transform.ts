@@ -49,8 +49,14 @@ export interface Transform {
 export interface TransformRegistration {
 	/** Unique transform ID */
 	id: string;
+	/** Plugin kind discriminator */
+	kind: 'transform';
+	/** Human-readable description used by the catalog and docs */
+	description: string;
 	/** Transform class */
 	transform: new () => Transform;
 	/** JSON Schema for config validation */
 	configSchema?: Record<string, unknown>;
+	/** Setup metadata for onboarding (uses the connector ConnectorSetup shape). */
+	setup?: import('./connector.js').ConnectorSetup;
 }

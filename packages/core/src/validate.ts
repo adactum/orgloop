@@ -21,10 +21,8 @@ import type {
 	OrgLoopConfig,
 	TransformRegistration,
 } from '@orgloop/sdk';
-import type { ErrorObject, ValidateFunction } from 'ajv';
-import AjvModule from 'ajv';
-
-const Ajv = AjvModule.default ?? AjvModule;
+import type { ErrorObject } from 'ajv';
+import { compileWithCanonicalAjv } from './schema.js';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -151,22 +149,9 @@ const orgloopConfigSchema = {
 	},
 };
 
-// ─── AJV compile cache (per-schema) ──────────────────────────────────────────
-//
-// Cached by the schema object identity so re-validation under the same
-// registration instance reuses the compiled validator.
-
-const compiledSchemaCache = new WeakMap<object, ValidateFunction>();
-let sharedAjv: InstanceType<typeof Ajv> | null = null;
-
-function compileSchema(schema: Record<string, unknown>): ValidateFunction {
-	const cached = compiledSchemaCache.get(schema);
-	if (cached) return cached;
-	if (!sharedAjv) sharedAjv = new Ajv({ allErrors: true, strict: false });
-	const validator = sharedAjv.compile(schema);
-	compiledSchemaCache.set(schema, validator);
-	return validator;
-}
+// AJV compilation is delegated to the canonical authority in schema.ts —
+// there must be exactly one Ajv instance in the workspace build.
+const compileSchema = compileWithCanonicalAjv;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 

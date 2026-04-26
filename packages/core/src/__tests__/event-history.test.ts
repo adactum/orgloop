@@ -1,3 +1,4 @@
+import type { RouteRef } from '@orgloop/sdk';
 import type { EventRecord } from '../event-history.js';
 import { EventHistory } from '../event-history.js';
 
@@ -7,13 +8,17 @@ function makeRecord(overrides: Partial<EventRecord> = {}): EventRecord {
 		timestamp: new Date().toISOString(),
 		source: 'test-source',
 		type: 'resource.changed',
-		matched_routes: ['route-a'],
+		matched_routes: [{ module: 'test-module', name: 'route-a' }],
 		sop_files: [],
 		actors: ['actor-a'],
 		processing_ms: 1.5,
 		module: 'test-module',
 		...overrides,
 	};
+}
+
+function ref(name: string, module = 'test-module'): RouteRef {
+	return { module, name };
 }
 
 describe('EventHistory', () => {
@@ -67,13 +72,13 @@ describe('EventHistory', () => {
 
 	it('filters by route', () => {
 		const history = new EventHistory({ maxSize: 10 });
-		history.push(makeRecord({ matched_routes: ['pr-review'] }));
-		history.push(makeRecord({ matched_routes: ['ci-failure', 'notify'] }));
-		history.push(makeRecord({ matched_routes: ['pr-review'] }));
+		history.push(makeRecord({ matched_routes: [ref('pr-review')] }));
+		history.push(makeRecord({ matched_routes: [ref('ci-failure'), ref('notify')] }));
+		history.push(makeRecord({ matched_routes: [ref('pr-review')] }));
 
-		const results = history.query({ route: 'ci-failure' });
+		const results = history.query({ routeName: 'ci-failure' });
 		expect(results).toHaveLength(1);
-		expect(results[0].matched_routes).toContain('ci-failure');
+		expect(results[0].matched_routes.some((r) => r.name === 'ci-failure')).toBe(true);
 	});
 
 	it('filters by time range', () => {
@@ -120,13 +125,13 @@ describe('EventHistory', () => {
 
 	it('combines multiple filters', () => {
 		const history = new EventHistory({ maxSize: 10 });
-		history.push(makeRecord({ source: 'github', matched_routes: ['pr-review'] }));
-		history.push(makeRecord({ source: 'github', matched_routes: ['ci-failure'] }));
-		history.push(makeRecord({ source: 'linear', matched_routes: ['pr-review'] }));
+		history.push(makeRecord({ source: 'github', matched_routes: [ref('pr-review')] }));
+		history.push(makeRecord({ source: 'github', matched_routes: [ref('ci-failure')] }));
+		history.push(makeRecord({ source: 'linear', matched_routes: [ref('pr-review')] }));
 
-		const results = history.query({ source: 'github', route: 'pr-review' });
+		const results = history.query({ source: 'github', routeName: 'pr-review' });
 		expect(results).toHaveLength(1);
 		expect(results[0].source).toBe('github');
-		expect(results[0].matched_routes).toContain('pr-review');
+		expect(results[0].matched_routes.some((r) => r.name === 'pr-review')).toBe(true);
 	});
 });

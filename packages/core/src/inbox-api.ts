@@ -5,31 +5,47 @@
  *   GET /api/inbox/status?session_key=<key>           — check pending count
  */
 
+import type { ApiHandler, HandlerBundle } from './handler-bundle.js';
 import type { Runtime } from './runtime.js';
 
-export function registerInboxApi(runtime: Runtime): void {
-	const server = runtime.getWebhookServer();
+export function buildInboxApiBundle(runtime: Runtime): HandlerBundle | null {
 	const manager = runtime.getInboxManager();
+	if (!manager) return null;
 
-	if (!manager) return; // Inbox not enabled — no endpoints
-
-	// GET /api/inbox/drain?session_key=<key>&limit=100
-	server.registerApiHandler('inbox/drain', async (query) => {
+	const drain: ApiHandler = async (query) => {
 		const sessionKey = query.get('session_key');
 		if (!sessionKey) {
-			return { error: 'Missing required parameter: session_key' };
+			return { body: { error: 'Missing required parameter: session_key' } };
 		}
 		const limitStr = query.get('limit');
 		const limit = limitStr ? Number.parseInt(limitStr, 10) : undefined;
-		return manager.drain(sessionKey, limit);
-	});
+		return { body: await manager.drain(sessionKey, limit) };
+	};
 
-	// GET /api/inbox/status?session_key=<key>
-	server.registerApiHandler('inbox/status', async (query) => {
+	const status: ApiHandler = async (query) => {
 		const sessionKey = query.get('session_key');
 		if (!sessionKey) {
-			return { error: 'Missing required parameter: session_key' };
+			return { body: { error: 'Missing required parameter: session_key' } };
 		}
-		return { pending: await manager.pending(sessionKey) };
-	});
+		return { body: { pending: await manager.pending(sessionKey) } };
+	};
+
+	return {
+		name: 'inbox-api',
+		apiHandlers: new Map<string, ApiHandler>([
+			['inbox/drain', drain],
+			['inbox/status', status],
+		]),
+	};
+}
+
+/**
+ * @deprecated Use `buildInboxApiBundle` + `WebhookServer.registerBundle()`
+ * directly. Retained as a thin shim so external callers don't break — the
+ * body now goes through the same bundle path as new code.
+ */
+export function registerInboxApi(runtime: Runtime): void {
+	const bundle = buildInboxApiBundle(runtime);
+	if (!bundle) return;
+	runtime.getWebhookServer().registerBundle(bundle);
 }

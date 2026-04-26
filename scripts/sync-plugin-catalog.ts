@@ -14,7 +14,8 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PLUGIN_CATALOG } from '../packages/cli/src/plugin-catalog.ts';
+import { CODING_AGENT_HARNESSES } from '../packages/cli/src/harness-catalog.ts';
+import { PLUGIN_PACKAGES } from '../packages/cli/src/plugin-catalog.ts';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..');
@@ -52,14 +53,12 @@ function extractRegisteredHookCommands(source: string): Set<string> {
 
 function extractCatalogHookCommands(): Set<string> {
 	const out = new Set<string>();
-	for (const entry of PLUGIN_CATALOG) {
-		for (const harness of entry.harnesses ?? []) {
-			for (const integration of harness.integrations) {
-				const cmd = integration.command?.trim();
-				if (!cmd?.startsWith(ORGLOOP_HOOK_PREFIX)) continue;
-				const subcommand = cmd.slice(ORGLOOP_HOOK_PREFIX.length).split(/\s+/)[0];
-				if (subcommand) out.add(subcommand);
-			}
+	for (const harness of CODING_AGENT_HARNESSES) {
+		for (const integration of harness.integrations) {
+			const cmd = integration.command?.trim();
+			if (!cmd?.startsWith(ORGLOOP_HOOK_PREFIX)) continue;
+			const subcommand = cmd.slice(ORGLOOP_HOOK_PREFIX.length).split(/\s+/)[0];
+			if (subcommand) out.add(subcommand);
 		}
 	}
 	return out;
@@ -108,7 +107,7 @@ async function main(): Promise<void> {
 		}
 	}
 
-	const catalogPackageNames = new Set(PLUGIN_CATALOG.map((e) => e.packageName));
+	const catalogPackageNames = new Set(PLUGIN_PACKAGES);
 
 	// 1. FS dirs ⊆ catalog
 	for (const pkg of fsPackageNames) {
@@ -143,13 +142,88 @@ async function main(): Promise<void> {
 	// 5. catalog hook integrations ⊆ registered hook subcommands
 	await checkHookIntegrationsResolve(errors);
 
+	// 6. Combined Ajv instantiations across the workspace must equal one (in
+	//    packages/core/src/schema.ts). Anything else is a regression.
+	await checkSingleAjvAuthority(errors);
+
+	// 7. Each registered plugin must declare `kind` and `description`.
+	await checkRegistrationMetadata(errors);
+
 	if (errors.length > 0) {
 		console.error('Plugin catalog invariant violations:');
 		for (const e of errors) console.error(`  - ${e}`);
 		process.exit(1);
 	}
 
-	console.log(`Plugin catalog OK (${PLUGIN_CATALOG.length} entries).`);
+	console.log(`Plugin catalog OK (${PLUGIN_PACKAGES.length} entries).`);
+}
+
+async function walkSourceFiles(dir: string, out: string[]): Promise<void> {
+	let entries: Awaited<ReturnType<typeof readdir>>;
+	try {
+		entries = await readdir(resolve(REPO_ROOT, dir), { withFileTypes: true });
+	} catch {
+		return;
+	}
+	for (const e of entries) {
+		const full = `${dir}/${e.name}`;
+		if (e.isDirectory()) {
+			if (e.name === 'node_modules' || e.name === 'dist' || e.name === '__tests__') continue;
+			await walkSourceFiles(full, out);
+		} else if (e.isFile() && (e.name.endsWith('.ts') || e.name.endsWith('.tsx'))) {
+			out.push(full);
+		}
+	}
+}
+
+async function checkSingleAjvAuthority(errors: string[]): Promise<void> {
+	const files: string[] = [];
+	for (const root of ['packages', 'connectors', 'transforms', 'loggers', 'scripts']) {
+		await walkSourceFiles(root, files);
+	}
+	let count = 0;
+	const offenders: string[] = [];
+	for (const file of files) {
+		try {
+			const src = await readFile(resolve(REPO_ROOT, file), 'utf-8');
+			const matches = src.match(/new\s+(?:Ajv|AjvClass)\s*\(/g);
+			if (matches) {
+				count += matches.length;
+				offenders.push(file);
+			}
+		} catch {}
+	}
+	if (count !== 1) {
+		errors.push(
+			`Expected exactly one direct Ajv instantiation (in packages/core/src/schema.ts); found ${count} across: ${offenders.join(', ')}`,
+		);
+	}
+}
+
+async function checkRegistrationMetadata(errors: string[]): Promise<void> {
+	const REGISTRATION_DIRS = [
+		['connectors', 'kind'],
+		['transforms', 'kind'],
+		['loggers', 'kind'],
+	] as const;
+	for (const [dir] of REGISTRATION_DIRS) {
+		const names = await listDirs(dir);
+		for (const name of names) {
+			const indexPath = `${dir}/${name}/src/index.ts`;
+			let src: string;
+			try {
+				src = await readFile(resolve(REPO_ROOT, indexPath), 'utf-8');
+			} catch {
+				continue;
+			}
+			if (!/\bkind\s*:/.test(src)) {
+				errors.push(`${indexPath}: registration is missing required \`kind\` field`);
+			}
+			if (!/\bdescription\s*:/.test(src)) {
+				errors.push(`${indexPath}: registration is missing required \`description\` field`);
+			}
+		}
+	}
 }
 
 main().catch((err) => {

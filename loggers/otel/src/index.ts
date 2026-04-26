@@ -8,6 +8,8 @@ import { OtelLogger } from './otel-logger.js';
 export function register(): LoggerRegistration {
 	return {
 		id: 'otel',
+		kind: 'logger',
+		description: 'OpenTelemetry OTLP export logger',
 		logger: OtelLogger,
 		configSchema: {
 			type: 'object',

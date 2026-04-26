@@ -362,7 +362,7 @@ describe('FileLogger', () => {
 
 		const entry = makeEntry({
 			event_id: 'evt_full',
-			route: 'pr-review',
+			route: { module: 'test', name: 'pr-review' },
 			event_type: 'resource.changed',
 			transform: 'dedup',
 			result: 'delivered',
@@ -380,7 +380,7 @@ describe('FileLogger', () => {
 		const content = await readFile(logPath, 'utf-8');
 		const parsed = JSON.parse(content.trim());
 		expect(parsed.event_id).toBe('evt_full');
-		expect(parsed.route).toBe('pr-review');
+		expect(parsed.route).toEqual({ module: 'test', name: 'pr-review' });
 		expect(parsed.transform).toBe('dedup');
 		expect(parsed.duration_ms).toBe(42);
 		expect(parsed.error).toBe('timeout');

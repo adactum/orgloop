@@ -5,7 +5,28 @@
  * Non-blocking: errors in one logger don't affect others.
  */
 
-import type { LogEntry, Logger } from '@orgloop/sdk';
+import type { LogEntry, Logger, LogPhase } from '@orgloop/sdk';
+
+/**
+ * Build a fully-populated LogEntry from a phase + partial fields.
+ *
+ * Single home for envelope construction so Runtime, EventProcessor, and
+ * RouteDispatcher don't drift on which fields appear in the JSONL/console
+ * output. Adds default `timestamp`, `event_id`, `trace_id` if absent;
+ * passes everything else through verbatim.
+ */
+export function buildLogEntry(
+	phase: LogPhase,
+	fields: Partial<LogEntry> & { module?: string },
+): LogEntry {
+	return {
+		timestamp: fields.timestamp ?? new Date().toISOString(),
+		event_id: fields.event_id ?? '',
+		trace_id: fields.trace_id ?? '',
+		...fields,
+		phase,
+	};
+}
 
 interface TaggedLogger {
 	logger: Logger;

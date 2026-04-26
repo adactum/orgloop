@@ -8,6 +8,8 @@ import { DedupTransform } from './dedup.js';
 export function register(): TransformRegistration {
 	return {
 		id: 'dedup',
+		kind: 'transform',
+		description: 'Drop duplicate events within a time window',
 		transform: DedupTransform,
 		configSchema: {
 			type: 'object',

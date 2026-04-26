@@ -8,6 +8,8 @@ import { AgentGateTransform } from './agent-gate.js';
 export function register(): TransformRegistration {
 	return {
 		id: 'agent-gate',
+		kind: 'transform',
+		description: 'Gate events on agent lifecycle predicates',
 		transform: AgentGateTransform,
 		configSchema: {
 			type: 'object',
