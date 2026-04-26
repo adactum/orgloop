@@ -38,6 +38,3 @@ jobs:
       - run: pnpm typecheck
 
       - run: pnpm run lint
-
-      - name: Plugin catalog sync (kind/description, single Ajv, package list)
-        run: pnpm run sync-plugin-catalog
