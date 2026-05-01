@@ -11,7 +11,7 @@ function makeEntry(
 	event_id: string,
 	phase: string,
 	timestamp: string,
-	overrides: Record<string, string> = {},
+	overrides: Record<string, unknown> = {},
 ) {
 	return {
 		timestamp,
@@ -41,19 +41,27 @@ describe('selectRecentEvents', () => {
 	it('prefers deliver.success over transform.drop for the same event_id', () => {
 		// An event matching two routes: one drops it, the other delivers it.
 		const entries = [
-			makeEntry('evt_1', 'transform.drop', '2024-01-01T00:00:01Z', { route: 'route-a' }),
-			makeEntry('evt_1', 'deliver.success', '2024-01-01T00:00:02Z', { route: 'route-b' }),
+			makeEntry('evt_1', 'transform.drop', '2024-01-01T00:00:01Z', {
+				route: { module: 'test', name: 'route-a' },
+			}),
+			makeEntry('evt_1', 'deliver.success', '2024-01-01T00:00:02Z', {
+				route: { module: 'test', name: 'route-b' },
+			}),
 		];
 		const result = selectRecentEvents(entries, 5);
 		expect(result).toHaveLength(1);
 		expect(result[0].phase).toBe('deliver.success');
-		expect(result[0].route).toBe('route-b');
+		expect(result[0].route).toEqual({ module: 'test', name: 'route-b' });
 	});
 
 	it('prefers deliver.success even when it appears before transform.drop in log order', () => {
 		const entries = [
-			makeEntry('evt_1', 'deliver.success', '2024-01-01T00:00:01Z', { route: 'route-a' }),
-			makeEntry('evt_1', 'transform.drop', '2024-01-01T00:00:02Z', { route: 'route-b' }),
+			makeEntry('evt_1', 'deliver.success', '2024-01-01T00:00:01Z', {
+				route: { module: 'test', name: 'route-a' },
+			}),
+			makeEntry('evt_1', 'transform.drop', '2024-01-01T00:00:02Z', {
+				route: { module: 'test', name: 'route-b' },
+			}),
 		];
 		const result = selectRecentEvents(entries, 5);
 		expect(result).toHaveLength(1);

@@ -532,3 +532,20 @@ Last event: 3 min ago (evt_abc123)
 2. Environment variables (`ORGLOOP_*`)
 3. `orgloop.yaml` in current directory
 4. `~/.orgloop/config.yaml` (user defaults)
+
+
+## Route resolver — `logs --route` precedence
+
+Bare route names supplied to `orgloop logs --route <name>` are resolved
+through three sources, in order:
+
+1. **Live API** — if a daemon is reachable, query `/api/routes` and match
+   by `name`.
+2. **JSONL log scan** — fall back to scanning `~/.orgloop/logs/orgloop.log`
+   for observed `(module, name)` pairs.
+3. **Bare-name fallback** — when neither has data, match across all
+   modules with a printed warning.
+
+When a bare name resolves to multiple modules, the CLI prints an
+ambiguity warning and shows entries from every match. To target a single
+module unambiguously, pass `module/name`.

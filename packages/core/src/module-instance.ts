@@ -21,6 +21,7 @@ import type {
 	Transform,
 	TransformDefinition,
 } from '@orgloop/sdk';
+import { RouteStatsStore } from './route-stats-store.js';
 import type { CheckpointStore } from './store.js';
 
 // ─── Configuration Types ─────────────────────────────────────────────────────
@@ -72,6 +73,7 @@ export class ModuleInstance {
 	private readonly moduleLoggers: Map<string, Logger>;
 	private readonly checkpointStore: CheckpointStore;
 	private readonly healthStates: Map<string, SourceHealthState>;
+	private readonly routeStatsStore = new RouteStatsStore();
 
 	constructor(
 		config: ModuleConfig,
@@ -247,6 +249,11 @@ export class ModuleInstance {
 
 	getCheckpointStore(): CheckpointStore {
 		return this.checkpointStore;
+	}
+
+	/** Module-scoped route fire/last-fired stats. */
+	getRouteStats(): RouteStatsStore {
+		return this.routeStatsStore;
 	}
 
 	status(): ModuleStatus {

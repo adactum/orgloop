@@ -6,6 +6,8 @@
  */
 
 import { createHash } from 'node:crypto';
+import type { RouteRef } from '@orgloop/sdk';
+import { routeRefEquals } from '@orgloop/sdk';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -53,11 +55,11 @@ export interface AuditRecord {
 	input_content_hash: string;
 
 	// Routing
-	/** Matched route name */
-	route: string;
+	/** Matched route identity (module-qualified) */
+	route: RouteRef;
 	/** SOP file path (if any) */
 	sop_file: string | null;
-	/** Module that processed the event */
+	/** Module that processed the event (mirrors `route.module`) */
 	module: string;
 
 	// Execution
@@ -88,6 +90,21 @@ export interface AuditRecord {
 export interface AuditTrailOptions {
 	/** Maximum number of audit records to retain (default: 5000) */
 	maxSize?: number;
+}
+
+/** Filter shape accepted by AuditTrail.query(). */
+export interface AuditQuery {
+	trace_id?: string;
+	/** Filter by owning module name */
+	module?: string;
+	/** Filter by full route identity (module + name) */
+	route?: RouteRef;
+	/** Bare-name fallback when caller cannot supply a full RouteRef */
+	routeName?: string;
+	actor?: string;
+	held_only?: boolean;
+	flagged_only?: boolean;
+	limit?: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -133,21 +150,21 @@ export class AuditTrail {
 	}
 
 	/** Query audit records, newest first. */
-	query(filter?: {
-		trace_id?: string;
-		route?: string;
-		actor?: string;
-		held_only?: boolean;
-		flagged_only?: boolean;
-		limit?: number;
-	}): AuditRecord[] {
+	query(filter?: AuditQuery): AuditRecord[] {
 		let records = this.toArray();
 
 		if (filter?.trace_id) {
 			records = records.filter((r) => r.trace_id === filter.trace_id);
 		}
+		if (filter?.module) {
+			records = records.filter((r) => r.module === filter.module);
+		}
 		if (filter?.route) {
-			records = records.filter((r) => r.route === filter.route);
+			const ref = filter.route;
+			records = records.filter((r) => routeRefEquals(r.route, ref));
+		} else if (filter?.routeName) {
+			const name = filter.routeName;
+			records = records.filter((r) => r.route.name === name);
 		}
 		if (filter?.actor) {
 			records = records.filter((r) => r.actor === filter.actor);

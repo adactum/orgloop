@@ -7,10 +7,12 @@
 import { open, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { parseDuration } from '@orgloop/sdk';
+import type { RouteRef } from '@orgloop/sdk';
+import { formatRouteRef, parseDuration, routeRefEquals } from '@orgloop/sdk';
 import chalk from 'chalk';
 import type { Command } from 'commander';
 import * as output from '../output.js';
+import { resolveRoute } from '../route-resolver.js';
 
 const DEFAULT_LOG_FILE = join(homedir(), '.orgloop', 'logs', 'orgloop.log');
 
@@ -21,7 +23,7 @@ interface LogEntry {
 	phase: string;
 	source?: string;
 	target?: string;
-	route?: string;
+	route?: RouteRef | string;
 	transform?: string;
 	event_type?: string;
 	result?: string;
@@ -32,16 +34,37 @@ interface LogEntry {
 
 interface LogFilter {
 	source?: string;
-	route?: string;
+	/** Resolved RouteRefs to match against. Logical OR — match any. */
+	route?: RouteRef[];
+	/**
+	 * Bare-name fallback used when the resolver could not narrow input to a
+	 * single module. Matches across all modules.
+	 */
+	routeName?: string;
 	eventType?: string;
 	result?: string;
 	event?: string;
 	since?: number; // timestamp in ms
 }
 
+function routeNameOf(route: RouteRef | string | undefined): string | undefined {
+	return typeof route === 'string' ? route : route?.name;
+}
+
+function formatLogRoute(route: RouteRef | string): string {
+	return typeof route === 'string' ? route : formatRouteRef(route);
+}
+
 function matchesFilter(entry: LogEntry, filter: LogFilter): boolean {
 	if (filter.source && entry.source !== filter.source) return false;
-	if (filter.route && entry.route !== filter.route) return false;
+	if (filter.route && filter.route.length > 0) {
+		if (!entry.route) return false;
+		if (typeof entry.route === 'string') {
+			if (!filter.route.some((r) => r.name === entry.route)) return false;
+		} else if (!filter.route.some((r) => routeRefEquals(r, entry.route as RouteRef))) return false;
+	} else if (filter.routeName) {
+		if (routeNameOf(entry.route) !== filter.routeName) return false;
+	}
 	if (filter.eventType && entry.event_type !== filter.eventType) return false;
 	if (filter.result && entry.result !== filter.result) return false;
 	if (filter.event && entry.event_id !== filter.event && entry.trace_id !== filter.event)
@@ -62,7 +85,10 @@ function formatLogEntry(entry: LogEntry, format: string): string {
 
 	let detail = '';
 	if (entry.transform) detail = `transform=${entry.transform}`;
-	if (entry.route) detail += detail ? ` route=${entry.route}` : `route=${entry.route}`;
+	if (entry.route) {
+		const routeStr = formatLogRoute(entry.route);
+		detail += detail ? ` route=${routeStr}` : `route=${routeStr}`;
+	}
 	if (entry.result) detail += ` result=${entry.result}`;
 	if (entry.duration_ms !== undefined) detail += ` (${entry.duration_ms}ms)`;
 	if (entry.error) detail += ` error="${entry.error}"`;
@@ -181,7 +207,22 @@ export function registerLogsCommand(program: Command): void {
 
 				const filter: LogFilter = {};
 				if (opts.source) filter.source = opts.source;
-				if (opts.route) filter.route = opts.route;
+				if (opts.route) {
+					const resolution = await resolveRoute(opts.route as string);
+					if (resolution.matches.length > 0) {
+						filter.route = resolution.matches;
+						if (resolution.ambiguous) {
+							output.warn(
+								`Route "${opts.route}" matched ${resolution.matches.length} modules — showing all matches.`,
+							);
+						}
+					} else {
+						filter.routeName = opts.route as string;
+						process.stderr.write(
+							`Warning: could not resolve route "${opts.route}" via API or logs — falling back to bare-name match.\n`,
+						);
+					}
+				}
 				if (opts.eventType) filter.eventType = opts.eventType;
 				if (opts.result) filter.result = opts.result;
 				if (opts.event) filter.event = opts.event;

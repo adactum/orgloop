@@ -39,8 +39,14 @@ export interface Logger {
 export interface LoggerRegistration {
 	/** Unique logger ID */
 	id: string;
+	/** Plugin kind discriminator */
+	kind: 'logger';
+	/** Human-readable description used by the catalog and docs */
+	description: string;
 	/** Logger class */
 	logger: new () => Logger;
 	/** JSON Schema for config validation */
 	configSchema?: Record<string, unknown>;
+	/** Setup metadata for onboarding (uses the connector ConnectorSetup shape). */
+	setup?: import('./connector.js').ConnectorSetup;
 }

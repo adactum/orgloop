@@ -215,3 +215,22 @@ Windows is out of MVP scope because:
 - Shell script transforms assume POSIX (`#!/bin/bash`, pipes, etc.)
 - Our team and early users are macOS/Linux
 - WSL2 is a viable escape hatch for Windows users
+
+
+## Connector registration metadata
+
+Every `ConnectorRegistration` returned from a plugin's `register()` MUST
+declare:
+
+- **`kind: 'source' | 'target' | 'both'`** — canonical role indicator. The
+  CLI consults this to choose source vs target scaffolding; `'both'`
+  connectors must populate both `setup.scaffold.source` and
+  `setup.scaffold.target` if they want to be selectable in either role.
+- **`description: string`** — human-readable description shown in
+  `orgloop init`, the catalog, and docs.
+- **`setup.scaffold?: { source?: string; target?: string }`** — YAML
+  scaffold fragments consumed by `orgloop init`. Replaces hardcoded
+  per-connector templates in CLI code.
+
+The `sync-plugin-catalog` CI step enforces the presence of `kind` and
+`description` on every registration in the workspace.

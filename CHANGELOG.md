@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Breaking — wire format / SDK shape
+
+- **SDK: `EventFilter.route` removed.** `EventFilter` no longer carries a
+  route filter. Bus subscribers should match on `source` / `type` and
+  filter by `matched_routes` from `EventRecord` (`RouteRef[]`).
+- **JSONL `route` is now an object.** File loggers emit `route: { module,
+  name }` instead of a bare string. Downstream consumers parsing
+  `~/.orgloop/logs/orgloop.log` must read the new object shape.
+- **OTel route attributes renamed.** The single `orgloop.route` attribute
+  is replaced by two scalar attributes — `orgloop.route.name` and
+  `orgloop.route.module`. Object attributes are not valid OTel values, so
+  this is a hard rename.
+- **Prometheus metric labels gain `module`.** Both
+  `orgloop_events_routed_total` and `orgloop_event_processing_seconds`
+  now carry a `module` label alongside `route`. Existing dashboards must
+  group/aggregate by `(route, module)` instead of `route` alone.
+- **Syslog SD parameters `route` → `route.name` / `route.module`.**
+  RFC 5424 structured data now carries the two parameters.
+
+### Added
+
+- `RouteRef` identity primitive in `@orgloop/sdk` (`{ module, name }`)
+  with helpers `routeRefKey`, `formatRouteRef`, `routeRefEquals`.
+- `RouteStatsStore` per-module stats container (replaces the runtime-wide
+  route stats map).
+- `EventProcessor` extraction — the event pipeline now lives on its own
+  class, not inline on `Runtime`.
+- `HandlerBundle` registration contract on `WebhookServer`. Runtime
+  control endpoints (load/unload/reload/status/shutdown) and CLI-level
+  handlers (`/api/doctor`, `/control/module/load-project`) all register
+  via the bundle path. REST and inbox APIs are migrated; their legacy
+  `registerRestApi` / `registerInboxApi` helpers are retained as
+  deprecated thin shims that delegate to the bundle path.
+- `compileWithCanonicalAjv` / `getCanonicalAjv` — single Ajv authority in
+  `@orgloop/core/schema`. The CLI no longer instantiates Ajv directly.
+- Plugin registrations now declare `kind` and `description`; CLI
+  `init` derives scaffold YAML from the connector's own `setup.scaffold`
+  metadata instead of hardcoded templates.
+- CLI route resolver (`packages/cli/src/route-resolver.ts`) for `orgloop
+  logs --route` — resolves bare names via live `/api/routes` or JSONL
+  scan, with cross-module ambiguity warnings.
+- CI step `sync-plugin-catalog` enforcing kind/description on every
+  registration and a single workspace Ajv instantiation.
+
 ## [0.7.8] - 2026-03-28
 
 Webhook buffer streaming reads + size cap (fixes #158)

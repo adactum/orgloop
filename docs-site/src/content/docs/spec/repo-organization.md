@@ -180,3 +180,10 @@ orgloop/
 | Approval required | N/A (we publish them) | **None** — anyone can publish at any time |
 
 **Inspiration:** Terraform's provider model. `hashicorp/aws` is first-party; community providers follow a naming convention, implement a well-defined interface, and are discovered via registry/npm. No approval needed — if it implements the interface, it works.
+
+
+## Note on REST API surface
+
+`registerRestApi` / `registerInboxApi` exported from `@orgloop/core` are
+deprecated thin shims. Prefer `buildRestApiBundle` / `buildInboxApiBundle`
+plus `WebhookServer.registerBundle()` — see [Runtime Modes](./runtime-modes#rest--inbox-api-registration).

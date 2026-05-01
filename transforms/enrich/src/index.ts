@@ -8,6 +8,8 @@ import { EnrichTransform } from './enrich.js';
 export function register(): TransformRegistration {
 	return {
 		id: 'enrich',
+		kind: 'transform',
+		description: 'Add/copy/compute fields on events',
 		transform: EnrichTransform,
 		configSchema: {
 			type: 'object',

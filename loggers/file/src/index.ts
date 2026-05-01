@@ -8,6 +8,8 @@ import { FileLogger } from './file-logger.js';
 export function register(): LoggerRegistration {
 	return {
 		id: 'file',
+		kind: 'logger',
+		description: 'Buffered JSONL file logger with rotation',
 		logger: FileLogger,
 		configSchema: {
 			type: 'object',

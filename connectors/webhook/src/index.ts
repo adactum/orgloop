@@ -9,6 +9,8 @@ import { WebhookTarget } from './target.js';
 export default function register(): ConnectorRegistration {
 	return {
 		id: 'webhook',
+		kind: 'both',
+		description: 'Generic webhook receiver and outbound HTTP delivery target',
 		source: WebhookSource,
 		target: WebhookTarget,
 		setup: {
@@ -19,6 +21,31 @@ export default function register(): ConnectorRegistration {
 					required: false,
 				},
 			],
+			scaffold: {
+				source: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+sources:
+  - id: webhook
+    description: Generic webhook receiver
+    connector: "@orgloop/connector-webhook"
+    config:
+      path: "/webhook"
+    emits:
+      - resource.changed
+      - message.received
+`,
+				target: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+actors:
+  - id: webhook
+    description: Generic webhook delivery target
+    connector: "@orgloop/connector-webhook"
+    config:
+      url: "\${WEBHOOK_TARGET_URL}"
+`,
+			},
 		},
 	};
 }

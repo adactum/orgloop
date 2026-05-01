@@ -177,6 +177,10 @@ describe('RouteDispatcher.dispatch — status states', () => {
 		const errorEmits = ctx.emit.mock.calls.filter((c) => c[0] === 'error');
 		expect(errorEmits.length).toBeGreaterThan(0);
 		expect(errorEmits[0][1]).toBeInstanceOf(DeliveryError);
+		expect((errorEmits[0][1] as DeliveryError).route).toEqual({
+			module: 'test-module',
+			name: 'test-route',
+		});
 	});
 
 	it('returns status=error when actor is missing', async () => {

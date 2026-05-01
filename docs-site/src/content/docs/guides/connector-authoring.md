@@ -271,3 +271,39 @@ Connectors depend only on `@orgloop/sdk`, never on `@orgloop/core`. This keeps t
 5. Users add to their project: `orgloop add connector my-service --package orgloop-connector-my-service`
 
 See the existing connectors in `connectors/` ([source on GitHub](https://github.com/orgloop/orgloop/tree/main/connectors)) for real-world examples of the pattern.
+
+
+## Required registration fields
+
+Every connector's `register()` MUST populate `kind` and `description`:
+
+```ts
+import type { ConnectorRegistration } from '@orgloop/sdk';
+
+export default function register(): ConnectorRegistration {
+  return {
+    id: 'my-connector',
+    kind: 'source',                       // 'source' | 'target' | 'both'
+    description: 'My example source connector',
+    source: MyConnectorSource,
+    setup: {
+      env_vars: [
+        { name: 'MY_API_TOKEN', description: 'API token', required: true },
+      ],
+      scaffold: {
+        source: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+sources:
+  - id: my-connector
+    connector: "@orgloop/connector-my-connector"
+    config:
+      token: "\${MY_API_TOKEN}"
+`,
+      },
+    },
+  };
+}
+```
+
+The `sync-plugin-catalog` CI step fails if `kind` or `description` is
+missing from any registration in the workspace.

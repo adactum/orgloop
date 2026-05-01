@@ -19,6 +19,8 @@ export {
 export default function register(): ConnectorRegistration {
 	return {
 		id: 'linear',
+		kind: 'source',
+		description: 'Linear project tracking events (poll-based)',
 		source: LinearSource,
 		setup: {
 			env_vars: [
@@ -28,6 +30,23 @@ export default function register(): ConnectorRegistration {
 					help_url: 'https://linear.app/settings/api',
 				},
 			],
+			scaffold: {
+				source: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+sources:
+  - id: linear
+    description: Linear project tracking events
+    connector: "@orgloop/connector-linear"
+    config:
+      team: "\${LINEAR_TEAM_KEY}"
+      api_key: "\${LINEAR_API_KEY}"
+    poll:
+      interval: "5m"
+    emits:
+      - resource.changed
+`,
+			},
 		},
 		credential_validators: {
 			LINEAR_API_KEY: new LinearCredentialValidator(),

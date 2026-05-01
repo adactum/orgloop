@@ -116,3 +116,18 @@ An optional pipeline step that modifies, filters, or enriches events between ing
 ### Transform Pipeline
 
 The ordered sequence of transforms applied to an event after route matching and before actor delivery. Defined per-route via the `transforms` array. If any transform drops the event, the pipeline stops and the event is not delivered.
+
+
+## Connector
+
+A plugin package that exposes itself as a *source* (events flow into
+OrgLoop), a *target* (events flow out to a downstream system), or *both*.
+Every connector's `register()` declares its `kind: 'source' | 'target' |
+'both'`, a `description`, and (optionally) `setup.scaffold` YAML fragments
+consumed by `orgloop init`.
+
+## RouteRef
+
+A compound `{ module, name }` identity used at every persistence boundary
+to disambiguate routes that share a name across modules. Constructed only
+from `mod.name + route.name` inside the runtime.

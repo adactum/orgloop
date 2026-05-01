@@ -160,13 +160,14 @@ describe('formatRfc5424()', () => {
 	it('includes optional fields when present', () => {
 		const entry = makeEntry({
 			target: 'openclaw',
-			route: 'pr-review',
+			route: { module: 'test', name: 'pr-review' },
 			transform: 'filter',
 		});
 		const msg = formatRfc5424(entry, 16, 'orgloop', 'myhost', true);
 
 		expect(msg).toContain('target="openclaw"');
-		expect(msg).toContain('route="pr-review"');
+		expect(msg).toContain('route.name="pr-review"');
+		expect(msg).toContain('route.module="test"');
 		expect(msg).toContain('transform="filter"');
 	});
 

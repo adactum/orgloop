@@ -137,6 +137,14 @@ export interface ServiceDetector {
 export interface ConnectorRegistration {
 	/** Unique connector ID */
 	id: string;
+	/**
+	 * Whether this connector exposes itself as a source, a target, or both.
+	 * Authoritative for the plugin catalog — the CLI does not infer kind from
+	 * which classes happen to be present.
+	 */
+	kind: 'source' | 'target' | 'both';
+	/** Human-readable description used by `orgloop init`, catalog, and docs */
+	description: string;
 	/** Source connector class (if this connector can be a source) */
 	source?: new () => SourceConnector;
 	/** Target/actor connector class (if this connector can be a target) */
@@ -189,6 +197,25 @@ export interface ConnectorSetup {
 	 * in another tool, creating an API token).
 	 */
 	integrations?: ConnectorIntegration[];
+	/**
+	 * YAML scaffold fragment(s) consumed by `orgloop init`.
+	 *
+	 * Two shapes are supported:
+	 *   - A `source` and/or `target` keyed YAML string (preferred).
+	 *   - A free-form record of named fragments — `init` looks for
+	 *     `source` / `target` keys.
+	 */
+	scaffold?: ConnectorScaffold | Record<string, unknown>;
+	/** Connector-level setup documentation */
+	help_url?: string;
+}
+
+/** Strongly-typed scaffold shape used by `orgloop init`. */
+export interface ConnectorScaffold {
+	/** Source-role YAML body */
+	source?: string;
+	/** Target-role YAML body */
+	target?: string;
 }
 
 /** An external integration step required by a connector. */

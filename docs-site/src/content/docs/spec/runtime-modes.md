@@ -210,3 +210,22 @@ POST /webhook/:sourceId    Receive webhook events for hook-based sources
 | CLI mode (`orgloop start`) | **MVP** | Ship first. This proves the core works. |
 | Library mode (`import { Runtime }`) | **MVP** | Comes free with library-first design. The CLI already uses it. |
 | Server mode (built-in HTTP API) | **Implemented** | REST API, control API, and webhook endpoints are built into the runtime. Available on every `orgloop start`. |
+
+
+## REST / inbox API registration
+
+`registerRestApi(runtime)` and `registerInboxApi(runtime)` are
+**deprecated**. New code should call:
+
+```ts
+import { buildRestApiBundle, buildInboxApiBundle } from '@orgloop/core';
+
+const server = runtime.getWebhookServer();
+server.registerBundle(buildRestApiBundle(runtime));
+const inbox = buildInboxApiBundle(runtime);
+if (inbox) server.registerBundle(inbox);
+```
+
+The deprecated wrappers still work — they delegate to the bundle path —
+but `WebhookServer.registerBundle()` is the canonical registration surface
+for first-party API / control / webhook handlers going forward.

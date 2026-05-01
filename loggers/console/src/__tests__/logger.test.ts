@@ -16,7 +16,7 @@ function makeEntry(overrides: Partial<LogEntry> = {}): LogEntry {
 		phase: 'deliver.success',
 		source: 'github',
 		target: 'openclaw',
-		route: 'pr-review',
+		route: { module: 'test', name: 'pr-review' },
 		event_type: 'resource.changed',
 		...overrides,
 	};
@@ -82,7 +82,7 @@ describe('formatCompact', () => {
 		expect(output).toContain('deliver.success');
 		expect(output).toContain('src=github');
 		expect(output).toContain('tgt=openclaw');
-		expect(output).toContain('route=pr-review');
+		expect(output).toContain('route=test/pr-review');
 		expect(output).toContain('type=resource.changed');
 		expect(output).not.toContain('\n');
 	});

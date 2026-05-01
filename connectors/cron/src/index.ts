@@ -12,6 +12,8 @@ import { CronSource } from './source.js';
 export default function register(): ConnectorRegistration {
 	return {
 		id: 'cron',
+		kind: 'source',
+		description: 'Cron-style scheduled event source (5-field cron or interval syntax)',
 		source: CronSource,
 		configSchema: {
 			type: 'object',
@@ -44,6 +46,22 @@ export default function register(): ConnectorRegistration {
 		setup: {
 			// Cron connector requires no env vars — purely config-driven
 			env_vars: [],
+			scaffold: {
+				source: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+sources:
+  - id: cron
+    description: Scheduled triggers
+    connector: "@orgloop/connector-cron"
+    config:
+      schedules:
+        - name: every-5m
+          cron: "every 5m"
+    emits:
+      - resource.changed
+`,
+			},
 		},
 	};
 }

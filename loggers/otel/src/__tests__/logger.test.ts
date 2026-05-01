@@ -107,7 +107,7 @@ function createEntry(overrides: Partial<LogEntry> = {}): LogEntry {
 		phase: 'deliver.success',
 		source: 'github-prs',
 		target: 'openclaw-agent',
-		route: 'pr-review',
+		route: { module: 'test', name: 'pr-review' },
 		event_type: 'resource.changed',
 		duration_ms: 150,
 		...overrides,
@@ -221,7 +221,8 @@ describe('OtelLogger', () => {
 			expect(record.attributes['orgloop.trace_id']).toBe('trc_abc456');
 			expect(record.attributes['orgloop.source']).toBe('github-prs');
 			expect(record.attributes['orgloop.target']).toBe('openclaw-agent');
-			expect(record.attributes['orgloop.route']).toBe('pr-review');
+			expect(record.attributes['orgloop.route.name']).toBe('pr-review');
+			expect(record.attributes['orgloop.route.module']).toBe('test');
 			expect(record.attributes['orgloop.event_type']).toBe('resource.changed');
 			expect(record.attributes['orgloop.duration_ms']).toBe(150);
 			expect(record.attributes['orgloop.transform']).toBe('dedup');
@@ -250,7 +251,8 @@ describe('OtelLogger', () => {
 			expect(attrs['orgloop.trace_id']).toBe('trc_min');
 			expect('orgloop.source' in attrs).toBe(false);
 			expect('orgloop.target' in attrs).toBe(false);
-			expect('orgloop.route' in attrs).toBe(false);
+			expect('orgloop.route.name' in attrs).toBe(false);
+			expect('orgloop.route.module' in attrs).toBe(false);
 			expect('orgloop.error' in attrs).toBe(false);
 			expect('orgloop.duration_ms' in attrs).toBe(false);
 		});

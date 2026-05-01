@@ -200,3 +200,20 @@ Useful for: sending delivery events to a Slack channel, feeding a dashboard, ale
 | Webhook | No | Yes | Yes |
 | OpenTelemetry | No | No | Yes |
 | Syslog | No | No | Yes |
+
+
+## Route identity in log output
+
+The `route` field on `LogEntry` is now a `RouteRef = { module, name }`
+object across every logger transport:
+
+- **File logger (JSONL)** — emits `route: { "module": "...", "name": "..." }`.
+  Downstream `jq` filters that previously read `.route` as a string must be
+  updated.
+- **OTel logger** — the prior single attribute `orgloop.route` is replaced by
+  two scalar attributes: `orgloop.route.name` and `orgloop.route.module`.
+  Object-typed attributes are not valid OTel values, so this is a hard
+  rename.
+- **Syslog logger (RFC 5424)** — structured-data parameters split: `route`
+  becomes `route.name` and `route.module`.
+- **Console logger** — renders `module/name` via `formatRouteRef()`.

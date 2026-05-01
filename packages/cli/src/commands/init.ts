@@ -1,8 +1,9 @@
 /**
  * orgloop init — Scaffold a new OrgLoop project.
  *
- * Interactive mode (default): prompts for project name, description, connectors.
- * Non-interactive: --name, --connectors, --no-interactive flags.
+ * Connector scaffold YAML is read from the static catalog embedded in
+ * scaffold-catalog.ts. Updating a connector scaffold requires editing
+ * that file to keep it in sync with the connector's own registration.
  */
 
 import { readFileSync } from 'node:fs';
@@ -14,23 +15,17 @@ import chalk from 'chalk';
 import type { Command } from 'commander';
 import { getEnvVarMeta } from '../env-metadata.js';
 import * as output from '../output.js';
-import { listConnectorIds, listConnectorPackageMap } from '../plugin-catalog.js';
+import { PLUGIN_PACKAGES } from '../plugin-catalog.js';
+import { CONNECTOR_SCAFFOLD_CATALOG } from '../scaffold-catalog.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// ─── Connectors ──────────────────────────────────────────────────────────────
-//
-// Init's scaffold UI derives its connector list from PLUGIN_CATALOG, plus a
-// few ergonomic aliases (slack/pagerduty) that re-use the generic webhook
-// connector under different YAML scaffolds.
-
-const CATALOG_CONNECTOR_IDS = listConnectorIds();
-const CATALOG_PACKAGE_MAP = listConnectorPackageMap();
-
+// Aliases — short connector identifiers that re-use an existing connector
+// package under a different scaffold (mostly webhook-based deliveries and
+// coding-agent harness short names).
 const ALIAS_PACKAGES: Record<string, string> = {
 	slack: '@orgloop/connector-webhook',
 	pagerduty: '@orgloop/connector-webhook',
-	// Harness short-names map to the unified coding-agent connector (P4).
 	'claude-code': '@orgloop/connector-coding-agent',
 	codex: '@orgloop/connector-coding-agent',
 	opencode: '@orgloop/connector-coding-agent',
@@ -38,14 +33,98 @@ const ALIAS_PACKAGES: Record<string, string> = {
 	'pi-rust': '@orgloop/connector-coding-agent',
 };
 
-const AVAILABLE_CONNECTORS = [...CATALOG_CONNECTOR_IDS, ...Object.keys(ALIAS_PACKAGES)];
+/** Return scaffold YAML for a connector role. Uses the static scaffold catalog. */
+function getConnectorScaffold(
+	connectorId: string,
+	roleHint: 'source' | 'target' | 'either',
+): { packageName: string; yaml: string } | null {
+	// Webhook delivery aliases: produce alias-specific actor id and env var
+	// so that selecting both slack and pagerduty does not create duplicate ids.
+	if (connectorId === 'slack' && roleHint !== 'source') {
+		return {
+			packageName: '@orgloop/connector-webhook',
+			yaml: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
 
-const CONNECTOR_PACKAGES: Record<string, string> = {
-	...CATALOG_PACKAGE_MAP,
-	...ALIAS_PACKAGES,
-};
+actors:
+  - id: slack
+    description: Slack webhook delivery
+    connector: "@orgloop/connector-webhook"
+    config:
+      url: "\${SLACK_WEBHOOK_URL}"
+`,
+		};
+	}
+	if (connectorId === 'pagerduty' && roleHint !== 'source') {
+		return {
+			packageName: '@orgloop/connector-webhook',
+			yaml: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
 
-/** Read the CLI's own version to use as a version hint for scaffolded projects. */
+actors:
+  - id: pagerduty
+    description: PagerDuty webhook delivery
+    connector: "@orgloop/connector-webhook"
+    config:
+      url: "\${PAGERDUTY_WEBHOOK_URL}"
+`,
+		};
+	}
+
+	const aliased = ALIAS_PACKAGES[connectorId];
+	if (aliased) {
+		// For harness aliases, customise the harness field on the coding-agent scaffold.
+		if (aliased === '@orgloop/connector-coding-agent' && connectorId !== 'coding-agent') {
+			return {
+				packageName: aliased,
+				yaml: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+sources:
+  - id: ${connectorId}
+    description: ${connectorId} session events
+    connector: "${aliased}"
+    config:
+      harness: ${connectorId}
+    emits:
+      - actor.stopped
+`,
+			};
+		}
+		// Fall through to catalog lookup using the alias target package's connector id.
+		const aliasedConnectorId = aliased.replace('@orgloop/connector-', '');
+		return lookupCatalog(aliasedConnectorId, aliased, roleHint);
+	}
+
+	return lookupCatalog(connectorId, `@orgloop/connector-${connectorId}`, roleHint);
+}
+
+function lookupCatalog(
+	connectorId: string,
+	packageName: string,
+	roleHint: 'source' | 'target' | 'either',
+): { packageName: string; yaml: string } | null {
+	const entry = CONNECTOR_SCAFFOLD_CATALOG[connectorId];
+	if (!entry) return null;
+
+	let role: 'source' | 'target';
+	if (entry.kind === 'source') role = 'source';
+	else if (entry.kind === 'target') role = 'target';
+	else role = roleHint === 'target' ? 'target' : 'source';
+
+	const yaml = role === 'source' ? entry.source : entry.target;
+	if (!yaml) return null;
+	return { packageName, yaml };
+}
+
+/** All connector IDs known to init — first-party connectors plus aliases. */
+function listAvailableConnectorIds(): string[] {
+	const firstParty = PLUGIN_PACKAGES.filter((p) => p.startsWith('@orgloop/connector-')).map((p) =>
+		p.replace('@orgloop/connector-', ''),
+	);
+	return [...firstParty, ...Object.keys(ALIAS_PACKAGES)];
+}
+
 function getVersionRange(): string {
 	try {
 		const pkgPath = resolve(__dirname, '..', '..', 'package.json');
@@ -56,182 +135,22 @@ function getVersionRange(): string {
 	}
 }
 
-/** Collect npm dependencies needed for a set of connectors. */
-function collectProjectDeps(connectors: string[]): Record<string, string> {
+function collectProjectDeps(packageNames: string[]): Record<string, string> {
 	const version = getVersionRange();
 	const deps: Record<string, string> = {
 		'@orgloop/core': version,
 		'@orgloop/logger-file': version,
 	};
-
-	for (const conn of connectors) {
-		const pkg = CONNECTOR_PACKAGES[conn];
-		if (pkg) deps[pkg] = version;
-	}
-
+	for (const pkg of packageNames) deps[pkg] = version;
 	return Object.fromEntries(Object.entries(deps).sort(([a], [b]) => a.localeCompare(b)));
 }
 
-function connectorYaml(name: string, _role: 'source' | 'actor'): string {
-	const configs: Record<string, string> = {
-		github: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: github
-    description: GitHub repository events
-    connector: "@orgloop/connector-github"
-    config:
-      repo: "\${GITHUB_REPO}"
-      token: "\${GITHUB_TOKEN}"
-      events:
-        - "pull_request.review_submitted"
-        - "pull_request_review_comment"
-        - "issue_comment"
-        - "pull_request.closed"
-        - "pull_request.merged"
-        - "workflow_run.completed"
-    poll:
-      interval: "5m"
-    emits:
-      - resource.changed
-`,
-
-		linear: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: linear
-    description: Linear project tracking events
-    connector: "@orgloop/connector-linear"
-    config:
-      team: "\${LINEAR_TEAM_KEY}"
-      api_key: "\${LINEAR_API_KEY}"
-    poll:
-      interval: "5m"
-    emits:
-      - resource.changed`,
-
-		openclaw: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-actors:
-  - id: openclaw-engineering-agent
-    description: OpenClaw engineering agent
-    connector: "@orgloop/connector-openclaw"
-    config:
-      base_url: "http://127.0.0.1:18789"
-      auth_token_env: "\${OPENCLAW_WEBHOOK_TOKEN}"
-      agent_id: "\${OPENCLAW_AGENT_ID}"`,
-
-		'coding-agent': `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: coding-agent
-    description: Coding agent session lifecycle events
-    connector: "@orgloop/connector-coding-agent"
-    config:
-      harness: claude-code
-      # secret: "\${WEBHOOK_SECRET}"
-    emits:
-      - actor.stopped`,
-
-		'claude-code': `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: claude-code
-    description: Claude Code session events
-    connector: "@orgloop/connector-coding-agent"
-    config:
-      harness: claude-code
-    emits:
-      - actor.stopped`,
-
-		codex: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: codex
-    description: Codex session events
-    connector: "@orgloop/connector-coding-agent"
-    config:
-      harness: codex
-    emits:
-      - actor.stopped`,
-
-		opencode: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: opencode
-    description: OpenCode session events
-    connector: "@orgloop/connector-coding-agent"
-    config:
-      harness: opencode
-    emits:
-      - actor.stopped`,
-
-		pi: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: pi
-    description: Pi session events
-    connector: "@orgloop/connector-coding-agent"
-    config:
-      harness: pi
-    emits:
-      - actor.stopped`,
-
-		'pi-rust': `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: pi-rust
-    description: Pi-rust session events
-    connector: "@orgloop/connector-coding-agent"
-    config:
-      harness: pi-rust
-    emits:
-      - actor.stopped`,
-
-		webhook: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-sources:
-  - id: webhook
-    description: Generic webhook receiver
-    connector: "@orgloop/connector-webhook"
-    config:
-      path: "/webhook"
-    emits:
-      - resource.changed
-      - message.received`,
-
-		slack: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-actors:
-  - id: slack-notify
-    description: Slack notification delivery
-    connector: "@orgloop/connector-webhook"
-    config:
-      url: "\${SLACK_WEBHOOK_URL}"`,
-
-		pagerduty: `apiVersion: orgloop/v1alpha1
-kind: ConnectorGroup
-
-actors:
-  - id: pagerduty
-    description: PagerDuty incident delivery
-    connector: "@orgloop/connector-webhook"
-    config:
-      url: "\${PAGERDUTY_WEBHOOK_URL}"`,
-	};
-	return configs[name] ?? configs.webhook;
-}
+// Connector IDs that are explicit delivery (target) aliases. Used to derive
+// the role hint passed to scaffold resolution. Other connectors derive role
+// from `ConnectorRegistration.kind`; bare-ID `kind: 'both'` connectors
+// default to source to preserve historical semantics (e.g. `webhook` is a
+// receiver, never a delivery, unless picked via an explicit alias).
+const DELIVERY_ALIASES = new Set(['openclaw', 'docker', 'slack', 'pagerduty']);
 
 function generateOrgloopYaml(name: string, description: string, connectors: string[]): string {
 	const connectorRefs = connectors.map((c) => `  - connectors/${c}.yaml`).join('\n');
@@ -259,13 +178,6 @@ loggers:
 }
 
 function generateRouteYaml(connectors: string[]): string {
-	if (connectors.length === 1 && connectors[0] === 'webhook') {
-		return `apiVersion: orgloop/v1alpha1
-kind: RouteGroup
-
-routes: []
-`;
-	}
 	if (connectors.includes('github') && connectors.includes('openclaw')) {
 		return `apiVersion: orgloop/v1alpha1
 kind: RouteGroup
@@ -292,8 +204,7 @@ routes: []
 `;
 }
 
-function generateDefaultTransformsYaml(): string {
-	return `apiVersion: orgloop/v1alpha1
+const DEFAULT_TRANSFORMS_YAML = `apiVersion: orgloop/v1alpha1
 kind: TransformGroup
 
 transforms:
@@ -302,32 +213,18 @@ transforms:
     script: ./drop-bot-noise.sh
     timeout_ms: 5000
 `;
-}
 
-function generateDropBotScript(): string {
-	return `#!/usr/bin/env bash
+const DROP_BOT_SCRIPT = `#!/usr/bin/env bash
 # drop-bot-noise.sh — Drop events from known bot authors.
-#
-# Reads OrgLoop event JSON from stdin.
-# Exit 0 = PASS (forward event), Exit 78 = DROP (discard event).
-
 set -euo pipefail
-
 EVENT=$(cat)
 AUTHOR_TYPE=$(echo "$EVENT" | jq -r '.provenance.author_type // "unknown"')
-
-if [ "$AUTHOR_TYPE" = "bot" ]; then
-  exit 78  # DROP
-fi
-
-# PASS — forward the event unchanged
+if [ "$AUTHOR_TYPE" = "bot" ]; then exit 78; fi
 echo "$EVENT"
 exit 0
 `;
-}
 
-function generateDefaultLoggerYaml(): string {
-	return `apiVersion: orgloop/v1alpha1
+const DEFAULT_LOGGER_YAML = `apiVersion: orgloop/v1alpha1
 kind: LoggerGroup
 
 loggers:
@@ -340,10 +237,8 @@ loggers:
         max_size: "50MB"
         max_files: 10
 `;
-}
 
-function generateExampleSop(): string {
-	return `# Example Launch Prompt
+const EXAMPLE_SOP = `# Example Launch Prompt
 
 You are receiving an event from the organization pipeline.
 
@@ -360,32 +255,20 @@ This event was routed through OrgLoop based on the configured rules.
 - Follow the organization's coding standards
 - Escalate security-related events immediately
 `;
-}
 
-// ─── Env var collection ──────────────────────────────────────────────────────
-
-/**
- * Scan connector YAML for ${VAR} references and return a map of
- * var name → connector file that requires it.
- */
 export function collectEnvVars(connectors: string[]): Map<string, string> {
 	const envVars = new Map<string, string>();
-	for (const conn of connectors) {
-		const yamlContent = connectorYaml(
-			conn,
-			['openclaw', 'slack', 'pagerduty'].includes(conn) ? 'actor' : 'source',
-		);
-		const matches = yamlContent.matchAll(/\$\{([^}]+)\}/g);
-		for (const match of matches) {
-			envVars.set(match[1], `connectors/${conn}.yaml`);
+	for (const c of connectors) {
+		const role: 'source' | 'target' | 'either' = DELIVERY_ALIASES.has(c) ? 'target' : 'either';
+		const scaffold = getConnectorScaffold(c, role);
+		if (!scaffold) continue;
+		for (const m of scaffold.yaml.matchAll(/\$\{([^}]+)\}/g)) {
+			envVars.set(m[1], `connectors/${c}.yaml`);
 		}
 	}
 	return envVars;
 }
 
-/**
- * Build the contents for a .env.example file from collected env vars.
- */
 export function buildEnvExampleContent(envVars: Map<string, string>): string {
 	const lines: string[] = [
 		'# OrgLoop environment variables',
@@ -404,8 +287,6 @@ export function buildEnvExampleContent(envVars: Map<string, string>): string {
 	return lines.join('\n');
 }
 
-// ─── File creation ───────────────────────────────────────────────────────────
-
 async function dirExists(path: string): Promise<boolean> {
 	try {
 		await access(path);
@@ -420,112 +301,104 @@ async function scaffoldProject(
 	name: string,
 	description: string,
 	connectors: string[],
-): Promise<string[]> {
+): Promise<{ created: string[]; packageDeps: string[] }> {
 	const created: string[] = [];
+	const packageDeps = new Set<string>();
 
-	// Create directories
 	await mkdir(join(targetDir, 'connectors'), { recursive: true });
 	await mkdir(join(targetDir, 'routes'), { recursive: true });
 	await mkdir(join(targetDir, 'transforms'), { recursive: true });
 	await mkdir(join(targetDir, 'loggers'), { recursive: true });
 	await mkdir(join(targetDir, 'sops'), { recursive: true });
 
-	// orgloop.yaml
-	const orgloopPath = join(targetDir, 'orgloop.yaml');
-	await writeFile(orgloopPath, generateOrgloopYaml(name, description, connectors), 'utf-8');
-	created.push('orgloop.yaml');
-
-	// Connector files
-	for (const conn of connectors) {
-		const connPath = join(targetDir, 'connectors', `${conn}.yaml`);
-		const role = ['openclaw', 'slack', 'pagerduty'].includes(conn) ? 'actor' : 'source';
-		await writeFile(connPath, connectorYaml(conn, role), 'utf-8');
-		created.push(`connectors/${conn}.yaml`);
+	// Resolve scaffolds first so orgloop.yaml only lists connectors that have files.
+	const scaffoldedConnectors: string[] = [];
+	const connectorScaffolds: Array<{ id: string; scaffold: { packageName: string; yaml: string } }> =
+		[];
+	for (const c of connectors) {
+		const role: 'source' | 'target' | 'either' = DELIVERY_ALIASES.has(c) ? 'target' : 'either';
+		const scaffold = getConnectorScaffold(c, role);
+		if (!scaffold) {
+			output.warn(`Connector "${c}" has no scaffold for role "${role}" — skipping.`);
+			continue;
+		}
+		scaffoldedConnectors.push(c);
+		connectorScaffolds.push({ id: c, scaffold });
 	}
 
-	// Route files
-	const routePath = join(targetDir, 'routes', 'example.yaml');
-	await writeFile(routePath, generateRouteYaml(connectors), 'utf-8');
+	await writeFile(
+		join(targetDir, 'orgloop.yaml'),
+		generateOrgloopYaml(name, description, scaffoldedConnectors),
+		'utf-8',
+	);
+	created.push('orgloop.yaml');
+
+	for (const { id: c, scaffold } of connectorScaffolds) {
+		await writeFile(join(targetDir, 'connectors', `${c}.yaml`), scaffold.yaml, 'utf-8');
+		created.push(`connectors/${c}.yaml`);
+		packageDeps.add(scaffold.packageName);
+	}
+
+	await writeFile(
+		join(targetDir, 'routes', 'example.yaml'),
+		generateRouteYaml(scaffoldedConnectors),
+		'utf-8',
+	);
 	created.push('routes/example.yaml');
 
-	// Logger files
-	const loggerPath = join(targetDir, 'loggers', 'default.yaml');
-	await writeFile(loggerPath, generateDefaultLoggerYaml(), 'utf-8');
+	await writeFile(join(targetDir, 'loggers', 'default.yaml'), DEFAULT_LOGGER_YAML, 'utf-8');
 	created.push('loggers/default.yaml');
 
-	// Transform files
-	const transformsYamlPath = join(targetDir, 'transforms', 'transforms.yaml');
-	await writeFile(transformsYamlPath, generateDefaultTransformsYaml(), 'utf-8');
+	await writeFile(
+		join(targetDir, 'transforms', 'transforms.yaml'),
+		DEFAULT_TRANSFORMS_YAML,
+		'utf-8',
+	);
 	created.push('transforms/transforms.yaml');
 
 	const scriptPath = join(targetDir, 'transforms', 'drop-bot-noise.sh');
-	await writeFile(scriptPath, generateDropBotScript(), 'utf-8');
+	await writeFile(scriptPath, DROP_BOT_SCRIPT, 'utf-8');
 	const { chmod } = await import('node:fs/promises');
 	await chmod(scriptPath, 0o755);
 	created.push('transforms/drop-bot-noise.sh');
 
-	// SOP files
-	const sopPath = join(targetDir, 'sops', 'example.md');
-	await writeFile(sopPath, generateExampleSop(), 'utf-8');
+	await writeFile(join(targetDir, 'sops', 'example.md'), EXAMPLE_SOP, 'utf-8');
 	created.push('sops/example.md');
 
-	// Generate package.json with connector/transform/logger dependencies
 	const packageJsonPath = join(targetDir, 'package.json');
 	if (!(await dirExists(packageJsonPath))) {
 		const packageJson = {
 			private: true,
 			description: `OrgLoop project: ${name}`,
-			dependencies: collectProjectDeps(connectors),
+			dependencies: collectProjectDeps([...packageDeps]),
 		};
 		await writeFile(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf-8');
 		created.push('package.json');
 	}
 
-	// Generate .env.example
-	const envVars = collectEnvVars(connectors);
+	const envVars = await collectEnvVars(connectors);
 	if (envVars.size > 0) {
 		await writeFile(join(targetDir, '.env.example'), buildEnvExampleContent(envVars), 'utf-8');
 		created.push('.env.example');
 	}
 
-	// Generate .gitignore (only if it doesn't already exist)
 	const gitignorePath = join(targetDir, '.gitignore');
 	if (!(await dirExists(gitignorePath))) {
-		const gitignoreContent = `# Environment variables (contains secrets)
-.env
-.env.local
-
-# OrgLoop runtime
-.orgloop/
-
-# Node
-node_modules/
-dist/
-`;
-		await writeFile(gitignorePath, gitignoreContent, 'utf-8');
+		await writeFile(
+			gitignorePath,
+			'# Environment variables (contains secrets)\n.env\n.env.local\n\n# OrgLoop runtime\n.orgloop/\n\n# Node\nnode_modules/\ndist/\n',
+			'utf-8',
+		);
 		created.push('.gitignore');
 	}
 
-	return created;
+	return { created, packageDeps: [...packageDeps] };
 }
 
-// ─── Claude Code hook helpers (exported for testing) ─────────────────────────
-
-/**
- * Build a Claude Code Stop hook entry in the object format expected by
- * Claude Code's settings.json.
- */
 export function buildClaudeCodeHookEntry(command: string) {
-	return {
-		matcher: '',
-		hooks: [{ type: 'command', command }],
-	};
+	return { matcher: '', hooks: [{ type: 'command', command }] };
 }
 
-/**
- * Check whether a Stop hooks array already contains an orgloop hook.
- * Handles the object format: [{ matcher, hooks: [{ type, command }] }].
- */
 export function hasExistingOrgloopHook(stopHooks: unknown[]): boolean {
 	return stopHooks.some((entry) => {
 		if (typeof entry !== 'object' || entry === null) return false;
@@ -535,32 +408,21 @@ export function hasExistingOrgloopHook(stopHooks: unknown[]): boolean {
 	});
 }
 
-/**
- * Merge an orgloop hook into a settings object. Returns the updated settings
- * and a boolean indicating whether the hook was already present.
- */
 export function mergeClaudeCodeHook(
 	settings: Record<string, unknown>,
 	hookCommand: string,
 ): { settings: Record<string, unknown>; alreadyInstalled: boolean } {
 	const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
 	const stopHooks = (hooks.Stop ?? []) as unknown[];
-
-	if (hasExistingOrgloopHook(stopHooks)) {
-		return { settings, alreadyInstalled: true };
-	}
-
+	if (hasExistingOrgloopHook(stopHooks)) return { settings, alreadyInstalled: true };
 	stopHooks.push(buildClaudeCodeHookEntry(hookCommand));
 	hooks.Stop = stopHooks;
 	settings.hooks = hooks;
 	return { settings, alreadyInstalled: false };
 }
 
-// ─── Claude Code hook onboarding ──────────────────────────────────────────────
-
 async function promptClaudeCodeHook(): Promise<void> {
 	const { default: inquirer } = await import('inquirer');
-
 	const { scope } = await inquirer.prompt([
 		{
 			type: 'list',
@@ -573,44 +435,29 @@ async function promptClaudeCodeHook(): Promise<void> {
 			],
 		},
 	]);
-
 	if (scope === 'skip') return;
-
 	const settingsPath =
 		scope === 'global'
 			? join(homedir(), '.claude', 'settings.json')
 			: join(process.cwd(), '.claude', 'settings.json');
-
 	const hookCommand = 'orgloop hook claude-code-stop';
-
 	try {
 		let settings: Record<string, unknown> = {};
 		try {
-			const content = await readFile(settingsPath, 'utf-8');
-			settings = JSON.parse(content);
-		} catch {
-			// File doesn't exist yet
-		}
-
+			settings = JSON.parse(await readFile(settingsPath, 'utf-8'));
+		} catch {}
 		const result = mergeClaudeCodeHook(settings, hookCommand);
 		if (result.alreadyInstalled) {
 			output.info('  OrgLoop hook already installed in Claude Code settings.');
 			return;
 		}
-
 		await mkdir(join(settingsPath, '..'), { recursive: true });
 		await writeFile(settingsPath, `${JSON.stringify(result.settings, null, 2)}\n`, 'utf-8');
 		output.success(`  Installed Claude Code Stop hook → ${chalk.dim(settingsPath)}`);
 	} catch (err) {
 		output.warn(`  Could not install hook: ${err instanceof Error ? err.message : String(err)}`);
-		output.info(`  Manually add to ${settingsPath}:`);
-		output.info(
-			`    "hooks": { "Stop": [{ "matcher": "", "hooks": [{ "type": "command", "command": "${hookCommand}" }] }] }`,
-		);
 	}
 }
-
-// ─── Command registration ────────────────────────────────────────────────────
 
 export function registerInitCommand(program: Command): void {
 	program
@@ -624,20 +471,19 @@ export function registerInitCommand(program: Command): void {
 		.action(async (opts) => {
 			try {
 				const targetDir = opts.dir ? resolve(opts.dir) : process.cwd();
+				const available = listAvailableConnectorIds();
 
 				let name: string;
 				let description: string;
 				let connectors: string[];
 
 				if (opts.interactive === false) {
-					// Non-interactive mode
 					name = opts.name ?? 'my-org';
 					description = opts.description ?? 'OrgLoop project';
 					connectors = opts.connectors
 						? (opts.connectors as string).split(',').map((c: string) => c.trim())
 						: ['github'];
 				} else {
-					// Interactive mode
 					const { default: inquirer } = await import('inquirer');
 					const answers = await inquirer.prompt([
 						{
@@ -656,7 +502,7 @@ export function registerInitCommand(program: Command): void {
 							type: 'checkbox',
 							name: 'connectors',
 							message: 'Which connectors?',
-							choices: AVAILABLE_CONNECTORS.map((c) => ({
+							choices: available.map((c) => ({
 								name: c.charAt(0).toUpperCase() + c.slice(1),
 								value: c,
 								checked: c === 'webhook',
@@ -668,35 +514,28 @@ export function registerInitCommand(program: Command): void {
 					connectors = answers.connectors as string[];
 				}
 
-				// Validate connectors
 				for (const c of connectors) {
-					if (!AVAILABLE_CONNECTORS.includes(c)) {
+					if (!available.includes(c)) {
 						output.error(`Unknown connector: ${c}`);
-						output.info(`Available: ${AVAILABLE_CONNECTORS.join(', ')}`);
+						output.info(`Available: ${available.join(', ')}`);
 						process.exitCode = 1;
 						return;
 					}
 				}
 
-				// Check for existing orgloop.yaml
 				if (await dirExists(join(targetDir, 'orgloop.yaml'))) {
 					output.error('orgloop.yaml already exists in this directory.');
-					output.info('Use a different directory or remove the existing file.');
 					process.exitCode = 1;
 					return;
 				}
 
-				const created = await scaffoldProject(targetDir, name, description, connectors);
+				const { created } = await scaffoldProject(targetDir, name, description, connectors);
 
 				output.blank();
 				output.heading('Created:');
-				for (const file of created) {
-					output.info(`  ${file}`);
-				}
+				for (const file of created) output.info(`  ${file}`);
 
-				// Show env var status with ✓/✗ indicators
-				const envVars = collectEnvVars(connectors);
-
+				const envVars = await collectEnvVars(connectors);
 				if (envVars.size > 0) {
 					output.blank();
 					output.heading('Environment variables:');
@@ -707,16 +546,14 @@ export function registerInitCommand(program: Command): void {
 						if (!isSet) {
 							const meta = getEnvVarMeta(varName);
 							if (meta) {
-								output.info(`    ${chalk.dim('\u2192')} ${meta.description}`);
-								if (meta.help_url) {
-									output.info(`    ${chalk.dim('\u2192')} ${chalk.cyan(meta.help_url)}`);
-								}
+								output.info(`    ${chalk.dim('→')} ${meta.description}`);
+								if (meta.help_url)
+									output.info(`    ${chalk.dim('→')} ${chalk.cyan(meta.help_url)}`);
 							}
 						}
 					}
 				}
 
-				// Claude Code hook onboarding
 				if (connectors.includes('claude-code') && opts.interactive !== false) {
 					output.blank();
 					await promptClaudeCodeHook();

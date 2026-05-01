@@ -6,7 +6,7 @@
  * descriptions consistently.
  */
 
-import { PLUGIN_CATALOG } from './plugin-catalog.js';
+import { CODING_AGENT_HARNESSES } from './harness-catalog.js';
 
 export interface EnvVarMeta {
 	description: string;
@@ -45,14 +45,12 @@ const STATIC_ENV_VAR_METADATA: Record<string, EnvVarMeta> = {
 
 function buildCatalogEnvIndex(): Record<string, EnvVarMeta> {
 	const out: Record<string, EnvVarMeta> = {};
-	for (const entry of PLUGIN_CATALOG) {
-		for (const harness of entry.harnesses ?? []) {
-			for (const v of harness.envVars) {
-				out[v.name] = {
-					description: v.description,
-					...(v.help_url ? { help_url: v.help_url } : {}),
-				};
-			}
+	for (const harness of CODING_AGENT_HARNESSES) {
+		for (const v of harness.envVars) {
+			out[v.name] = {
+				description: v.description,
+				...(v.help_url ? { help_url: v.help_url } : {}),
+			};
 		}
 	}
 	return out;

@@ -8,6 +8,8 @@ import { GogSource } from './source.js';
 export default function register(): ConnectorRegistration {
 	return {
 		id: 'gog',
+		kind: 'source',
+		description: 'GoG (Gmail) message source — emits resource.changed events for new mail',
 		source: GogSource,
 		setup: {
 			integrations: [
@@ -18,6 +20,19 @@ export default function register(): ConnectorRegistration {
 					command: 'gog auth login',
 				},
 			],
+			scaffold: {
+				source: `apiVersion: orgloop/v1alpha1
+kind: ConnectorGroup
+
+sources:
+  - id: gog
+    description: GoG (Gmail) source
+    connector: "@orgloop/connector-gog"
+    config: {}
+    emits:
+      - resource.changed
+`,
+			},
 		},
 	};
 }

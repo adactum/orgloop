@@ -7,6 +7,7 @@
  * Defense against the Viral Agent Loop (arXiv:2602.19555).
  */
 
+import type { RouteRef } from '@orgloop/sdk';
 import type { AuditFlag } from './audit.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ export interface ChainNode {
 	/** Event type */
 	type: string;
 	/** Route that matched (if any) */
-	route: string | null;
+	route: RouteRef | null;
 	/** Actor that handled (if any) */
 	actor: string | null;
 	/** Depth in the chain (1 = root event) */
@@ -84,7 +85,7 @@ export class LoopDetector {
 		eventId: string,
 		source: string,
 		type: string,
-		route: string | null,
+		route: RouteRef | null,
 		actor: string | null,
 	): LoopCheckResult {
 		this.cleanup();

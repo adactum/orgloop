@@ -5,6 +5,9 @@
  * Configurable max size (default 1000). Oldest entries evicted on overflow.
  */
 
+import type { RouteRef } from '@orgloop/sdk';
+import { routeRefEquals } from '@orgloop/sdk';
+
 export interface EventRecord {
 	/** Event ID */
 	event_id: string;
@@ -14,8 +17,8 @@ export interface EventRecord {
 	source: string;
 	/** Event type (resource.changed, actor.stopped, message.received) */
 	type: string;
-	/** Route(s) that matched this event */
-	matched_routes: string[];
+	/** Route(s) that matched this event (module-qualified) */
+	matched_routes: RouteRef[];
 	/** SOP file paths for matched routes */
 	sop_files: string[];
 	/** Actor IDs delivered to */
@@ -40,8 +43,15 @@ export interface EventHistoryQuery {
 	to?: string;
 	/** Filter by source connector ID */
 	source?: string;
-	/** Filter by matched route name */
-	route?: string;
+	/** Filter by module that processed the event */
+	module?: string;
+	/** Filter by route identity (module + name) */
+	route?: RouteRef;
+	/**
+	 * Bare-name fallback used when the caller cannot supply a full RouteRef
+	 * (e.g. legacy CLI input). Matches across all modules.
+	 */
+	routeName?: string;
 	/** Maximum number of results to return */
 	limit?: number;
 }
@@ -91,9 +101,16 @@ export class EventHistory {
 			filtered = filtered.filter((r) => r.source === q.source);
 		}
 
+		if (q?.module) {
+			filtered = filtered.filter((r) => r.module === q.module);
+		}
+
 		if (q?.route) {
-			const routeFilter = q.route;
-			filtered = filtered.filter((r) => r.matched_routes.includes(routeFilter));
+			const ref = q.route;
+			filtered = filtered.filter((r) => r.matched_routes.some((mr) => routeRefEquals(mr, ref)));
+		} else if (q?.routeName) {
+			const name = q.routeName;
+			filtered = filtered.filter((r) => r.matched_routes.some((mr) => mr.name === name));
 		}
 
 		if (q?.limit && q.limit > 0) {

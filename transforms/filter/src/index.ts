@@ -8,6 +8,8 @@ import { FilterTransform } from './filter.js';
 export function register(): TransformRegistration {
 	return {
 		id: 'filter',
+		kind: 'transform',
+		description: 'Match/exclude events by dot-path patterns or jq expressions',
 		transform: FilterTransform,
 		configSchema: {
 			type: 'object',

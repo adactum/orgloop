@@ -1,13 +1,13 @@
 /**
  * REST/data accessor helpers for Runtime.
  *
- * Extracted to keep runtime.ts focused on lifecycle + dispatch. These pure
- * helpers project the in-memory registry/health/route-stats into the shapes
- * the REST API and CLI commands consume.
+ * Pure projections of the in-memory registry/health/route-stats into the
+ * shapes the REST API and CLI commands consume. Route stats live on
+ * ModuleInstance now; we read them per-module rather than from a runtime-wide
+ * map that would silently aggregate same-named routes across modules.
  */
 
 import type { ModuleInstance } from './module-instance.js';
-import type { RouteStats } from './runtime.js';
 
 export interface RouteDetail {
 	name: string;
@@ -30,14 +30,12 @@ export interface SourceDetail {
 	poll_interval?: string;
 }
 
-export function buildRouteDetails(
-	modules: ModuleInstance[],
-	routeStats: ReadonlyMap<string, RouteStats>,
-): RouteDetail[] {
+export function buildRouteDetails(modules: ModuleInstance[]): RouteDetail[] {
 	const out: RouteDetail[] = [];
 	for (const mod of modules) {
+		const stats = mod.getRouteStats();
 		for (const route of mod.getRoutes()) {
-			const stats = routeStats.get(route.name);
+			const s = stats.get(route.name);
 			out.push({
 				name: route.name,
 				module: mod.name,
@@ -48,8 +46,8 @@ export function buildRouteDetails(
 				},
 				actor: route.then.actor,
 				...(route.with?.prompt_file ? { sop_file: route.with.prompt_file } : {}),
-				fire_count: stats?.fireCount ?? 0,
-				last_fired: stats?.lastFiredAt ?? null,
+				fire_count: s?.fireCount ?? 0,
+				last_fired: s?.lastFiredAt ?? null,
 			});
 		}
 	}

@@ -15,14 +15,22 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Command } from 'commander';
-import { loadCliConfig, resolveConfigPath } from '../config.js';
+import { buildCliBundle } from '../cli-bundle.js';
 import { getDaemonInfo, isPortInUse } from '../daemon-client.js';
-import { loadDotEnv } from '../dotenv.js';
-import { deriveModuleName, readModulesState, registerModule } from '../module-registry.js';
+import { readModulesState, registerModule } from '../module-registry.js';
 import * as output from '../output.js';
-import { createProjectImport } from '../project-import.js';
-import { resolveConnectors } from '../resolve-connectors.js';
+import {
+	deriveModuleName,
+	loadCliConfig,
+	loadDotEnv,
+	resolveConfigPath,
+	resolveModuleResources,
+} from '../project-loader.js';
 import { printDoctorResult, runDoctor } from './doctor.js';
+
+// Re-export project-loader helpers for any external callers that previously
+// imported them from this module.
+export { deriveModuleName, loadCliConfig, loadDotEnv, resolveConfigPath, resolveModuleResources };
 
 const PID_DIR = join(homedir(), '.orgloop');
 const PID_FILE = join(PID_DIR, 'orgloop.pid');
@@ -64,86 +72,6 @@ async function saveState(config: import('@orgloop/sdk').OrgLoopConfig): Promise<
 	};
 
 	await writeFile(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8');
-}
-
-// ─── Shared: resolve all connectors/transforms/loggers from config ─────────
-
-async function resolveModuleResources(
-	config: import('@orgloop/sdk').OrgLoopConfig,
-	projectDir: string,
-) {
-	const projectImport = createProjectImport(projectDir);
-
-	// Resolve connectors
-	const { sources: resolvedSources, actors: resolvedActors } = await resolveConnectors(
-		config,
-		projectImport as Parameters<typeof resolveConnectors>[1],
-	);
-
-	// Resolve package transforms
-	const resolvedTransforms = new Map<string, import('@orgloop/sdk').Transform>();
-	for (const tDef of config.transforms) {
-		if (tDef.type === 'package' && tDef.package) {
-			try {
-				const mod = await projectImport(tDef.package);
-				if (typeof mod.register === 'function') {
-					const reg = mod.register() as import('@orgloop/sdk').TransformRegistration;
-
-					// Validate transform config against schema if available
-					if (reg.configSchema && tDef.config) {
-						try {
-							const AjvMod = await import('ajv');
-							const AjvClass = AjvMod.default?.default ?? AjvMod.default ?? AjvMod;
-							const ajv = new AjvClass({ allErrors: true });
-							const validate = ajv.compile(reg.configSchema);
-							if (!validate(tDef.config)) {
-								const errors = (validate.errors ?? [])
-									.map(
-										(e: { instancePath?: string; message?: string }) =>
-											`${e.instancePath || '/'}: ${e.message}`,
-									)
-									.join('; ');
-								output.warn(
-									`Transform "${tDef.name}" config validation failed: ${errors}. Check your transform YAML config matches the expected schema.`,
-								);
-							}
-						} catch {
-							// Schema validation is best-effort
-						}
-					}
-
-					resolvedTransforms.set(tDef.name, new reg.transform());
-				}
-			} catch (err) {
-				output.warn(
-					`Transform "${tDef.name}" (${tDef.package}) not available: ${err instanceof Error ? err.message : String(err)}`,
-				);
-			}
-		}
-	}
-
-	// Resolve loggers
-	const resolvedLoggers = new Map<string, import('@orgloop/sdk').Logger>();
-	for (const loggerDef of config.loggers) {
-		try {
-			const mod = await projectImport(loggerDef.type);
-			if (typeof mod.register === 'function') {
-				const reg = mod.register();
-				resolvedLoggers.set(loggerDef.name, new reg.logger());
-			}
-		} catch (err) {
-			output.warn(
-				`Logger "${loggerDef.name}" (${loggerDef.type}) not available: ${err instanceof Error ? err.message : String(err)}`,
-			);
-		}
-	}
-
-	return {
-		resolvedSources,
-		resolvedActors,
-		resolvedTransforms,
-		resolvedLoggers,
-	};
 }
 
 // ─── Register module into a running daemon ──────────────────────────────────
@@ -331,71 +259,18 @@ async function runForeground(configPath?: string, force?: boolean): Promise<void
 		// Start HTTP server for control API, webhooks, and REST API
 		await runtime.startHttpServer();
 
-		// Register REST API endpoints
-		const { registerRestApi } = await import('@orgloop/core');
-		registerRestApi(runtime);
+		// Register REST + inbox API endpoints via the HandlerBundle path.
+		const { buildRestApiBundle, buildInboxApiBundle } = await import('@orgloop/core');
+		const webhookServer = runtime.getWebhookServer();
+		webhookServer.registerBundle(buildRestApiBundle(runtime));
+		const inboxBundle = buildInboxApiBundle(runtime);
+		if (inboxBundle) webhookServer.registerBundle(inboxBundle);
 
-		// Register /api/doctor endpoint (needs CLI-level config resolution)
+		// Register CLI-level handlers (/api/doctor, /control/module/load-project) via bundle.
 		const resolvedDoctorConfigPath = resolveConfigPath(configPath);
-		runtime.getWebhookServer().registerApiHandler('doctor', async () => {
-			const { runDoctor: runDoctorCheck } = await import('./doctor.js');
-			return runDoctorCheck(resolvedDoctorConfigPath);
-		});
-
-		// Register the project loader handler so other CLI processes can add modules
-		runtime.registerControlHandler('module/load-project', async (body) => {
-			const reqConfigPath = body.configPath as string;
-			const reqProjectDir = body.projectDir as string;
-
-			if (!reqConfigPath || !reqProjectDir) {
-				throw new Error('configPath and projectDir are required');
-			}
-
-			// Load .env from the module's project directory so ${ENV_VAR} references resolve
-			await loadDotEnv(reqConfigPath);
-
-			const reqConfig = await loadCliConfig({ configPath: reqConfigPath });
-			const moduleName = deriveModuleName(reqConfig.project.name, reqProjectDir);
-
-			// Check if module already loaded — if so, reload it
-			const existingModules = runtime.listModules();
-			const existing = existingModules.find((m) => (m as { name: string }).name === moduleName);
-
-			if (existing) {
-				// Hot-reload: unload then reload
-				await runtime.unloadModule(moduleName);
-			}
-
-			const reqResolved = await resolveModuleResources(reqConfig, reqProjectDir);
-
-			const moduleConfig: import('@orgloop/core').ModuleConfig = {
-				name: moduleName,
-				sources: reqConfig.sources,
-				actors: reqConfig.actors,
-				routes: reqConfig.routes,
-				transforms: reqConfig.transforms,
-				loggers: reqConfig.loggers,
-				defaults: reqConfig.defaults,
-				modulePath: resolve(reqProjectDir),
-			};
-
-			const status = await runtime.loadModule(moduleConfig, {
-				sources: reqResolved.resolvedSources,
-				actors: reqResolved.resolvedActors,
-				transforms: reqResolved.resolvedTransforms,
-				loggers: reqResolved.resolvedLoggers,
-			});
-
-			// Track in modules.json
-			await registerModule({
-				name: moduleName,
-				sourceDir: resolve(reqProjectDir),
-				configPath: reqConfigPath,
-				loadedAt: new Date().toISOString(),
-			});
-
-			return status;
-		});
+		webhookServer.registerBundle(
+			buildCliBundle({ runtime, doctorConfigPath: resolvedDoctorConfigPath }),
+		);
 
 		// Convert config to ModuleConfig and load as a module
 		const moduleName = deriveModuleName(config.project.name, projectDir);
